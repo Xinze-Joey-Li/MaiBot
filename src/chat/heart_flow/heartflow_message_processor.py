@@ -64,6 +64,13 @@ class HeartFCMessageReceiver:
 
             await memory_automation_service.on_incoming_message(message)
 
+            from src.services.auto_repeat_service import auto_repeat_service
+
+            try:
+                await auto_repeat_service.on_incoming_message(message)
+            except Exception:
+                logger.exception("群聊自动复读处理失败")
+
             # 3. 日志记录
             mes_name = group_info.group_name if group_info else "私聊"
 

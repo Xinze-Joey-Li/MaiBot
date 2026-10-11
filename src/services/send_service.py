@@ -753,6 +753,9 @@ async def _notify_memory_automation_on_message_sent(message: SessionMessage) -> 
     Args:
         message: 已成功发送的内部消息对象。
     """
+    # 自动复读没有模型生成的新事实，不触发人物事实或群聊摘要写回。
+    if (message.message_info.additional_config or {}).get("auto_repeat") is True:
+        return
     try:
         from src.services.memory_flow_service import memory_automation_service
 
@@ -1135,6 +1138,23 @@ async def _send_to_target_with_message(
     except Exception as exc:
         logger.exception(f"[SendService] 发送消息时出错: {exc}")
         return None
+
+
+async def auto_repeat_to_stream(text: str, stream_id: str) -> bool:
+    """直接复制纯文本，保留记录但不调用 Planner 或占用回复额度。"""
+    message = _build_outbound_session_message(
+        MessageSequence([TextComponent(text)]), stream_id, processed_plain_text=text
+    )
+    if message is None:
+        return False
+    message.message_info.additional_config["auto_repeat"] = True
+    # 保存原始文本，避免构建器的 strip 改变复读内容。
+    message.processed_plain_text = text
+    sent_message = await send_session_message_with_message(
+        message, typing=False, set_reply=False, storage_message=True,
+        sync_to_maisaka_history=True, maisaka_source_kind="auto_repeat",
+    )
+    return sent_message is not None
 
 
 async def text_to_stream_with_message(

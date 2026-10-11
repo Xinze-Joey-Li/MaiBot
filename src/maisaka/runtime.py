@@ -521,6 +521,8 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
 
         user_info = message.message_info.user_info
         if is_bot_self(message.platform, user_info.user_id):
+            if (message.message_info.additional_config or {}).get("auto_repeat") is True:
+                return "auto_repeat"
             return "guided_reply"
         return "user"
 
@@ -589,7 +591,7 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
                 quote_ids=extract_quote_ids_from_message_sequence(message.raw_message),
                 include_message_id=not message.is_notify and bool(message.message_id),
                 include_chat_id=include_chat_id,
-                is_self_message=source_kind == "guided_reply",
+                is_self_message=source_kind in {"guided_reply", "auto_repeat"},
             )
             history_message = SessionBackedMessage.from_session_message(
                 message,

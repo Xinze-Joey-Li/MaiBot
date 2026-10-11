@@ -777,6 +777,19 @@ class ChatConfig(ConfigBase):
     __ui_use_subtabs__ = True
     __ui_root_sub_label__ = "基础设置"
 
+    auto_repeat_enabled: bool = Field(
+        default=True,
+        json_schema_extra={
+            "label": {
+                "zh_CN": "群聊自动复读 +1",
+                "en_US": "Join group text repeats",
+                "ja_JP": "グループのテキスト復唱に参加",
+            },
+            "x-widget": "switch",
+        },
+    )
+    """至少两人连续发送四条相同纯文本时跟随一次，不占回复额度；图片和表情不参与。"""
+
     enable_reply_at: bool = Field(
         default=True,
         json_schema_extra={
