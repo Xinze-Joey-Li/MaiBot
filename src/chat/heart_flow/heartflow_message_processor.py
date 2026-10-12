@@ -57,9 +57,16 @@ class HeartFCMessageReceiver:
             except Exception as e:
                 logger.error(f"出现错误: {e}")
 
+            from src.services.priority_at_reply_service import priority_at_reply_service
+
+            priority_at_reply = priority_at_reply_service.claim(message)
             await MessageUtils.store_message_to_db_async(message)  # 存储消息到数据库
             if chat is not None:
                 await chat.register_message(message)
+                if priority_at_reply:
+                    priority_at_reply_service.start_reply(message, chat)
+            elif priority_at_reply:
+                raise RuntimeError("@ 独立回复无法解析真实聊天运行时")
             from src.services.memory_flow_service import memory_automation_service
 
             await memory_automation_service.on_incoming_message(message)

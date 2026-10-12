@@ -277,7 +277,9 @@ async def main() -> None:
         from src.mcp_module.service import get_mcp_service
         from src.plugin_runtime.integration import get_plugin_runtime_manager
         from src.services.memory_flow_service import memory_automation_service
+        from src.services.priority_at_reply_service import priority_at_reply_service
 
+        await priority_at_reply_service.shutdown()
         emoji_manager.shutdown()
         await image_manager.shutdown()
         await memory_automation_service.shutdown()

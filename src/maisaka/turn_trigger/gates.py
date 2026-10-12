@@ -152,7 +152,7 @@ class DynamicReplyTurnGate:
         recent_total_count = 0
         seconds_since_bot: Optional[float] = None
         for message in reversed(self._runtime._chat_history):
-            if message.source == "auto_repeat":
+            if message.source in {"auto_repeat", "priority_at_reply"}:
                 continue
             if not message.count_in_context:
                 continue

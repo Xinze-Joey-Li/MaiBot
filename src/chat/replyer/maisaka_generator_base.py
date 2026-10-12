@@ -156,7 +156,7 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
     def _extract_guided_bot_reply(self, message: SessionBackedMessage) -> str:
         # 只能根据结构化来源字段判断是否为 bot 自身写回的历史消息，
         # 不能依赖昵称/群名片等可控文本，避免误判和提示注入。
-        if message.source_kind != "guided_reply":
+        if message.source_kind not in {"guided_reply", "auto_repeat", "priority_at_reply"}:
             return ""
 
         plain_text = message.processed_plain_text.strip()

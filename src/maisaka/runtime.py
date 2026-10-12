@@ -521,6 +521,8 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
 
         user_info = message.message_info.user_info
         if is_bot_self(message.platform, user_info.user_id):
+            if (message.message_info.additional_config or {}).get("priority_at_response") is True:
+                return "priority_at_reply"
             if (message.message_info.additional_config or {}).get("auto_repeat") is True:
                 return "auto_repeat"
             return "guided_reply"
@@ -591,7 +593,7 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
                 quote_ids=extract_quote_ids_from_message_sequence(message.raw_message),
                 include_message_id=not message.is_notify and bool(message.message_id),
                 include_chat_id=include_chat_id,
-                is_self_message=source_kind in {"guided_reply", "auto_repeat"},
+                is_self_message=source_kind in {"guided_reply", "auto_repeat", "priority_at_reply"},
             )
             history_message = SessionBackedMessage.from_session_message(
                 message,
@@ -917,6 +919,19 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
 
     async def register_message(self, message: SessionMessage) -> None:
         """缓存一条新消息并唤醒主循环。"""
+        if message.message_info.additional_config.get("priority_at_handled") is True:
+            # @ 仅写入上下文供独立 Replyer 使用，不更新强制触发或加入普通消息队列。
+            if any(
+                isinstance(item, SessionBackedMessage) and item.message_id == message.message_id
+                for item in self._chat_history
+            ):
+                return
+            self._emit_monitor_message_ingested(message)
+            history_message = await self._reasoning_engine._build_history_message(message, source_kind="user")
+            if history_message is None:
+                raise RuntimeError("@ 消息无法构建回复上下文")
+            self._chat_history.append(history_message)
+            return
         if self._running:
             self._ensure_background_tasks_running()
         received_at = time.time()

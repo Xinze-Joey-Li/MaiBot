@@ -15,6 +15,7 @@ import asyncio
 import base64
 import hashlib
 import time
+import uuid
 from datetime import datetime
 
 from src.chat.message_receive.chat_manager import BotChatSession
@@ -1138,6 +1139,20 @@ async def _send_to_target_with_message(
     except Exception as exc:
         logger.exception(f"[SendService] 发送消息时出错: {exc}")
         return None
+
+
+async def send_priority_at_reply(sequence: MessageSequence, target: SessionMessage) -> bool:
+    """直接发送 @ 回复并引用原消息，不经过 Planner 或回复额度记账。"""
+    message = _build_outbound_session_message(sequence, target.session_id, reply_message=target)
+    if message is None:
+        return False
+    message.message_id = f"priority_at_{uuid.uuid4().hex}"
+    message.message_info.additional_config["priority_at_response"] = True
+    sent_message = await send_session_message_with_message(
+        message, typing=False, set_reply=True, reply_message_id=target.message_id, reply_message=target,
+        storage_message=True, sync_to_maisaka_history=True, maisaka_source_kind="priority_at_reply",
+    )
+    return sent_message is not None
 
 
 async def auto_repeat_to_stream(text: str, stream_id: str) -> bool:

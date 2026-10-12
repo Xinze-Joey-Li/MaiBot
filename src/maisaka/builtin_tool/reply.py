@@ -381,6 +381,12 @@ async def handle_tool(
             f"未找到要回复的目标消息，msg_id={to_display_message_id(target_message_id)}",
         )
 
+    if target_message.message_info.additional_config.get("priority_at_handled") is True:
+        return tool_ctx.build_failure_result(
+            invocation.tool_name,
+            "这条 @ 消息由独立优先回复处理，普通 reply 不重复回复该消息。",
+        )
+
     extension_execution = ReplyExtensionExecution(
         context=ToolAvailabilityContext(
             session_id=tool_ctx.runtime.session_id,

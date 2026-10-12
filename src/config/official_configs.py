@@ -777,6 +777,32 @@ class ChatConfig(ConfigBase):
     __ui_use_subtabs__ = True
     __ui_root_sub_label__ = "基础设置"
 
+    priority_at_reply_enabled: bool = Field(
+        default=True,
+        json_schema_extra={
+            "label": {
+                "zh_CN": "@ 机器人独立优先回复",
+                "en_US": "Independent priority replies to @bot",
+                "ja_JP": "@bot への独立優先返信",
+            },
+            "x-widget": "switch",
+        },
+    )
+    """@ 机器人必定启动独立回复，不占队列或发言额度；50% 表情包，50% 模型文本。"""
+
+    priority_at_reply_emoji_hashes: List[str] = Field(
+        default_factory=list,
+        json_schema_extra={
+            "label": {
+                "zh_CN": "@ 即时回复固定表情包",
+                "en_US": "Fixed emojis for instant @ replies",
+                "ja_JP": "@ 即時返信用の固定スタンプ",
+            },
+            "x-widget": "tags",
+        },
+    )
+    """填写已注册表情包的哈希值；@ 的表情分支仅从此列表随机选择，不使用其他表情。"""
+
     auto_repeat_enabled: bool = Field(
         default=True,
         json_schema_extra={
