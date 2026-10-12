@@ -93,9 +93,6 @@ PROMPT_PREVIEW_CATEGORY_BY_REQUEST_KIND = {
     "sub_agent": "sub_agent",
 }
 CONTEXT_SELECTION_CACHE_STABILITY_RATIO = 2.0
-PLANNER_FINAL_USER_REMINDER_TEMPLATE = (
-    "你需要输出对{bot_name}发言的分析，视情况输出文本内容的分析，思考是否进行工具调用"
-)
 
 
 @dataclass(slots=True)
@@ -766,7 +763,7 @@ class MaisakaChatLoopService:
     def _build_planner_final_user_reminder() -> str:
         """构造每轮 Planner 请求末尾的一次性 user 提醒。"""
 
-        return PLANNER_FINAL_USER_REMINDER_TEMPLATE.format(bot_name=global_config.bot.nickname.strip())
+        return load_prompt("maisaka_planner_action_reminder", bot_name=global_config.bot.nickname.strip())
 
     def _get_chat_prompt_name(self) -> str:
         """选择当前聊天使用的 Planner 模板。"""

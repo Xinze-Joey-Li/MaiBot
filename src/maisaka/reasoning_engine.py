@@ -11,6 +11,7 @@ from rich.panel import Panel
 
 import asyncio
 import difflib
+import re
 import time
 import uuid
 
@@ -24,6 +25,7 @@ from src.common.data_models.message_component_data_model import (
     TextComponent,
 )
 from src.common.logger import get_logger
+from src.common.prompt_i18n import load_prompt
 from src.config.config import global_config
 from src.core.tooling import (
     ToolAvailabilityContext,
@@ -639,10 +641,33 @@ class MaisakaReasoningEngine:
         self,
         planner_no_tool_count: int,
         planner_extra_lines: list[str],
+        *,
+        response: ChatResponse,
     ) -> tuple[int, CycleEnd, bool]:
-        """处理 Planner 未调用工具时的终止策略。"""
+        """仅对明确声明调用 reply 却遗漏调用的输出纠错一次，其余无工具输出正常结束。"""
 
-        planner_no_tool_count += 1
+        # 预算属于整个逻辑轮次，不能在其他工具执行后重置；不重放已执行的回复。
+        if (
+            planner_no_tool_count == 0
+            and response.tool_count > 0
+            and not response.native_tool_calls
+            and self._runtime.is_action_tool_currently_available("reply")
+            and self._has_explicit_reply_tool_intent(self._get_planner_content(response))
+        ):
+            self._clear_planner_no_tool_hints()
+            self._runtime._chat_history.append(
+                ReferenceMessage(
+                    content=load_prompt("maisaka_planner_tool_correction"),
+                    timestamp=datetime.now(),
+                    reference_type=ReferenceMessageType.PLANNER_TOOL_HINT,
+                    # 当前轮 finalize 消费一次，下一次请求后再次消费并移除。
+                    remaining_uses_value=2,
+                )
+            )
+            planner_extra_lines.append("状态：声明调用 reply 但未调用，进行一次纠错")
+            logger.info(f"{self._runtime.log_prefix} Planner 声明调用 reply 但未调用，进行一次纠错")
+            return 1, CycleEnd("planner_no_tool_retry", "Planner 遗漏工具调用，进行一次受限纠错。"), False
+
         cycle_end = CycleEnd("planner_no_tool_end", "Planner本轮思考结束。")
         self._end_planner_no_tool_cycle(
             planner_extra_lines,
@@ -650,6 +675,24 @@ class MaisakaReasoningEngine:
         )
         logger.info(f"{self._runtime.log_prefix} Planner 已结束本轮思考")
         return planner_no_tool_count, cycle_end, True
+
+    @staticmethod
+    def _has_explicit_reply_tool_intent(content: str) -> bool:
+        """保守识别末句的明确工具行动，不把一般回复建议、引用或疑问当作行动。"""
+
+        clauses = [part.strip() for part in re.split(r"[。！？!?;；\n]", content) if part.strip()]
+        if not clauses or content.rstrip().endswith(("?", "？")):
+            return False
+        clause = clauses[-1]
+        if re.search(r'["“”「」『』]|如果|若|可能|考虑|不要|无需|不用|不应|不需要|不调用|不再|不能', clause):
+            return False
+        if re.search(r"\b(if|might|maybe|not|no|never|shouldn't|don't)\b", clause, re.IGNORECASE):
+            return False
+        return bool(
+            re.search(r"(?:直接|现在|接下来|决定|需要|应该|应当|我将).{0,12}调用\s*`?reply`?\b", clause)
+            or re.search(r"\b(?:I will|I should|now|directly)\s+(?:call|invoke)\s+`?reply`?\b", clause, re.IGNORECASE)
+            or re.search(r"(?:今|次に|直接).{0,12}reply.{0,12}呼び出", clause)
+        )
 
     def _end_planner_no_tool_cycle(
         self,
@@ -693,7 +736,8 @@ class MaisakaReasoningEngine:
         await self._emit_planner_progress(cycle_detail, state, [], first_tool_call_id)
 
         if response.tool_calls:
-            planner_no_tool_count = 0
+            if any(tool_call.func_name == "reply" for tool_call in response.tool_calls):
+                planner_no_tool_count = 1
             self._clear_planner_no_tool_hints()
             tool_started_at = time.time()
             (
@@ -719,6 +763,7 @@ class MaisakaReasoningEngine:
         planner_no_tool_count, cycle_end, should_end_after_no_tool = self._handle_planner_no_tool_retry(
             planner_no_tool_count,
             planner_extra_lines,
+            response=response,
         )
         state.cycle_end = cycle_end
         state.tool_result_summaries = []
@@ -1111,8 +1156,12 @@ class MaisakaReasoningEngine:
                     planner_no_tool_count = 0
                     mid_term_reference_refreshed = False
                     round_index = 0
+                    is_tool_correction = False
                     while round_index < self._runtime._max_internal_rounds:
-                        pending_round_messages = await self._collect_pending_messages_before_next_round(round_index)
+                        # 纠错复用上一请求的真实目标及上下文；新消息仍由原有中断链路处理。
+                        pending_round_messages = (
+                            [] if is_tool_correction else await self._collect_pending_messages_before_next_round(round_index)
+                        )
                         if pending_round_messages:
                             cached_messages = pending_round_messages
                             trigger_message = pending_round_messages[-1]
@@ -1149,10 +1198,12 @@ class MaisakaReasoningEngine:
                                 planner_no_tool_count=planner_no_tool_count,
                                 planner_extra_lines=state.planner_extra_lines,
                             )
+                            is_tool_correction = state.cycle_end.reason == "planner_no_tool_retry"
                             if should_break_after_action:
                                 break
                             continue
                         except ReqAbortException as exc:
+                            is_tool_correction = False
                             state.planner_interrupted = True
                             state.cycle_end = CycleEnd("planner_interrupted", "Planner 被新消息打断，当前轮结束。")
                             interrupt_result = await self._handle_planner_interrupt(
@@ -1179,6 +1230,7 @@ class MaisakaReasoningEngine:
                             if not state.planner_interrupted:
                                 round_index += 1
                 finally:
+                    self._clear_planner_no_tool_hints()
                     self._active_logical_turn_id = None
                     if self._runtime._agent_state == self._runtime._STATE_RUNNING:
                         self._runtime._enter_stop_state()

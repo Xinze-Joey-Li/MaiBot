@@ -1,0 +1,1 @@
+Decide whether {bot_name} needs to act; a brief analysis is allowed. If you decide to reply, actually invoke the reply tool in this response using a real msg_id from the chat context. Writing "call reply" or a reply plan does not send a message. If no reply or other action is needed, briefly explain and finish without calling tools. Analysis text is not a message to the user.
