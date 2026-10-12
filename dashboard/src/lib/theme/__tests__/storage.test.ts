@@ -4,7 +4,7 @@
  */
 import { beforeEach, describe, expect, it } from 'vitest'
 
-import { DEFAULT_ACCENT_COLOR_HSL } from '../palette'
+import { DEFAULT_ACCENT_COLOR_HEX, DEFAULT_ACCENT_COLOR_HSL } from '../palette'
 import {
   THEME_STORAGE_KEYS,
   exportThemeJSON,
@@ -41,7 +41,7 @@ describe('loadThemeConfig', () => {
       styleTokenOverrides: {},
       styleCustomCSS: {},
       styleBackgroundConfig: {},
-      dashboardStyle: 'future-retro',
+      dashboardStyle: 'modern',
       styleConfig: {
         futureRetro: {
           paperWarmth: 100,
@@ -126,7 +126,7 @@ describe('loadThemeConfig', () => {
 
     const config = loadThemeConfig()
 
-    expect(config.dashboardStyle).toBe('future-retro')
+    expect(config.dashboardStyle).toBe('modern')
     expect(config.accentColor).toBe(DEFAULT_ACCENT_COLOR_HSL)
   })
 
@@ -138,7 +138,7 @@ describe('saveThemeConfig', () => {
       buildConfig({
         selectedPreset: 'dark',
         // 默认强调色的十六进制形式会被归一化回默认 HSL
-        accentColor: '#55AB49',
+        accentColor: DEFAULT_ACCENT_COLOR_HEX,
         // future-retro 的自定义 CSS 不受支持，保存时会被丢弃
         styleCustomCSS: { 'future-retro': '.x {}' },
         dashboardStyle: 'modern',

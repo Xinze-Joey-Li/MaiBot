@@ -29,7 +29,7 @@ createRoot(document.getElementById('root')!).render(
       <QueryClientProvider client={queryClient}>
         <AnnouncerProvider>
           <AssetStoreProvider>
-            <ThemeProvider defaultTheme="system">
+            <ThemeProvider defaultTheme="light">
               <VersionCompatibilityDialog />
               <AnimationProvider>
                 <TourProvider>

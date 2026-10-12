@@ -7,8 +7,9 @@ from src.A_memorix.core.utils.summary_importer import SUMMARY_PROMPT_TEMPLATE, S
 from src.services import memory_flow_service as memory_flow_module
 
 
-def _fake_global_config(**integration_values):
+def _fake_global_config(*, tag_memory_enabled=False, **integration_values):
     return SimpleNamespace(
+        chat=SimpleNamespace(tag_memory=SimpleNamespace(enabled=tag_memory_enabled)),
         a_memorix=SimpleNamespace(
             integration=SimpleNamespace(**integration_values),
         )
@@ -634,6 +635,7 @@ async def test_chat_summary_writeback_service_loads_trigger_count_from_summary_m
 async def test_memory_automation_service_auto_starts_and_delegates(monkeypatch):
     from unittest.mock import AsyncMock
 
+    monkeypatch.setattr(memory_flow_module, "global_config", _fake_global_config())
     monkeypatch.setattr(memory_flow_module.ImageMemoryWritebackService, 'start', AsyncMock())
     monkeypatch.setattr(memory_flow_module.ImageMemoryWritebackService, 'shutdown', AsyncMock())
     events: list[tuple[str, str]] = []
@@ -679,6 +681,7 @@ async def test_memory_automation_service_auto_starts_and_delegates(monkeypatch):
 async def test_memory_automation_service_on_incoming_message_auto_starts_only(monkeypatch):
     from unittest.mock import AsyncMock
 
+    monkeypatch.setattr(memory_flow_module, "global_config", _fake_global_config())
     monkeypatch.setattr(memory_flow_module.ImageMemoryWritebackService, 'start', AsyncMock())
     monkeypatch.setattr(memory_flow_module.ImageMemoryWritebackService, 'enqueue', AsyncMock())
     monkeypatch.setattr(memory_flow_module.ImageMemoryWritebackService, 'shutdown', AsyncMock())
@@ -727,3 +730,35 @@ def test_chat_summary_writeback_metadata_decodes_json_bytes_only():
 
     assert metadata == {"trigger_message_count": 7}
     assert invalid == {}
+
+
+@pytest.mark.asyncio
+async def test_tag_memory_disables_legacy_summary_but_preserves_profiles_and_images(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(memory_flow_module, "global_config", _fake_global_config(tag_memory_enabled=True))
+    service = memory_flow_module.MemoryAutomationService()
+    service.fact_writeback = SimpleNamespace(start=AsyncMock(), enqueue=AsyncMock(), shutdown=AsyncMock())
+    service.chat_summary_writeback = SimpleNamespace(start=AsyncMock(), enqueue=AsyncMock(), shutdown=AsyncMock())
+    service.image_writeback = SimpleNamespace(start=AsyncMock(), enqueue=AsyncMock(), shutdown=AsyncMock())
+    message = SimpleNamespace(session_id="group")
+    await service.on_incoming_message(message)
+    await service.on_message_sent(message)
+    service.fact_writeback.start.assert_awaited_once()
+    service.fact_writeback.enqueue.assert_awaited_once_with(message)
+    service.image_writeback.enqueue.assert_awaited_once_with(message)
+    service.chat_summary_writeback.start.assert_not_awaited()
+    service.chat_summary_writeback.enqueue.assert_not_awaited()
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_queued_legacy_summary_is_skipped_when_tag_memory_enabled(monkeypatch):
+    from unittest.mock import Mock
+
+    monkeypatch.setattr(memory_flow_module, "global_config", _fake_global_config(tag_memory_enabled=True))
+    service = memory_flow_module.ChatSummaryWritebackService()
+    count = Mock(side_effect=AssertionError("不应访问旧摘要计数"))
+    monkeypatch.setattr(service, "_count_messages_until_trigger", count)
+    await service._handle_message(SimpleNamespace(session_id="group"))
+    count.assert_not_called()

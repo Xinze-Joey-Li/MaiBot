@@ -26,7 +26,8 @@ DEFAULT_TASK_CONFIG_TEMPLATES: dict[str, dict[str, Any]] = {
         "hard_timeout": 120.0,
     },
     "memory": {
-        "model_list": [],
+        # 标签摘要、话题延续判断和人物画像事实抽取使用独立任务，不混用回复模型。
+        "model_list": ["deepseek-v4-flash"],
         "max_tokens": 8192,
         "temperature": 0.3,
         "selection_strategy": "random",

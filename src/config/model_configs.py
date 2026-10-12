@@ -462,7 +462,7 @@ class ModelTaskConfig(ConfigBase):
             "advanced": True,
         },
     )
-    """记忆模型配置，用于长期记忆总结、抽取、写回等高记忆任务；留空时由调用方按需回退"""
+    """记忆模型配置，用于批量标签、摘要、话题延续判断、人物画像事实抽取及长期记忆；标签提取需显式配置可用模型。"""
 
     mid_memory: TaskConfig = Field(
         default_factory=TaskConfig,

@@ -433,11 +433,11 @@ class PersonFactWritebackService:
             if self._extractor is None:
                 from src.services.llm_service import LLMServiceClient
 
-                self._extractor = LLMServiceClient(task_name="utils", request_type="A_Memorix.person_fact_writeback")
+                self._extractor = LLMServiceClient(task_name="memory", request_type="A_Memorix.person_fact_writeback")
             response_result = await self._extractor.generate_response(prompt)
         except Exception as exc:
-            logger.debug(f"人物事实提取模型调用失败: {exc}")
-            return []
+            logger.error(f"人物事实提取模型调用失败: {exc}", exc_info=True)
+            raise
         return self._parse_fact_items(response_result.response)
 
     @staticmethod
@@ -569,6 +569,9 @@ class ChatSummaryWritebackService:
 
     async def _handle_message(self, message: Any) -> None:
         session_id = self._resolve_session_id(message)
+        # 新标签链路按 25 条/30 分钟统一提交；不再执行“回复后按消息总数写摘要”的旧任务。
+        if global_config.chat.tag_memory.enabled:
+            return
         if not session_id:
             return
 
@@ -1003,7 +1006,10 @@ class MemoryAutomationService:
         if self._started:
             return
         await self.fact_writeback.start()
-        await self.chat_summary_writeback.start()
+        # 旧摘要 worker 不与新标签提取并行运行，画像事实和图片记忆仍保持原有生命周期。
+        # await self.chat_summary_writeback.start()  # 原先无条件启动，现仅在显式关闭标签系统时启用。
+        if not global_config.chat.tag_memory.enabled:
+            await self.chat_summary_writeback.start()
         await self.image_writeback.start()
         self._started = True
 
@@ -1024,7 +1030,10 @@ class MemoryAutomationService:
         if not self._started:
             await self.start()
         await self.fact_writeback.enqueue(message)
-        await self.chat_summary_writeback.enqueue(message)
+        # await self.chat_summary_writeback.enqueue(message)  # 旧的“每次发送后触发摘要”机制。
+        # 新标签系统从入站数据库独立消费，机器人沉默时也会按 25 条/30 分钟提取。
+        if not global_config.chat.tag_memory.enabled:
+            await self.chat_summary_writeback.enqueue(message)
 
 
 memory_automation_service = MemoryAutomationService()

@@ -1084,6 +1084,14 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
         # )
 
         preview_chat_id = self._resolve_session_id(stream_id)
+        from src.services.tag_memory_recall import build_tag_memory_reference
+
+        tag_reference = await build_tag_memory_reference(
+            preview_chat_id,
+            (reply_message.processed_plain_text
+             if reply_message is not None and reply_message.processed_plain_text is not None else ""),
+            [str(reply_message.message_info.user_info.user_id)] if reply_message is not None else [],
+        )
         retry_constraints: List[str] = []
         retry_reasons: List[str] = []
         retry_events: List[Dict[str, Any]] = []
@@ -1125,7 +1133,7 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
                 active_task_name = default_task_name
             active_model_name = str(before_request_kwargs.get("model_name") or "").strip() or None
             active_reply_requirements = self._build_reply_requirements(
-                str(before_request_kwargs.get("extra_prompt") or ""),
+                "\n\n".join(part for part in (str(before_request_kwargs.get("extra_prompt") or ""), tag_reference) if part),
                 retry_constraints,
             )
 

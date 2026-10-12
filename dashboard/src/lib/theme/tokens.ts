@@ -172,7 +172,7 @@ export type DashboardStyleConfig = {
   futureRetro: FutureRetroStyleConfig
 }
 
-export const DEFAULT_DASHBOARD_STYLE: DashboardStyle = 'future-retro'
+export const DEFAULT_DASHBOARD_STYLE: DashboardStyle = 'modern'
 
 export const DEFAULT_FUTURE_RETRO_STYLE_CONFIG: FutureRetroStyleConfig = {
   paperWarmth: 100,
@@ -201,14 +201,14 @@ export type UserThemeConfig = {
 
 export const defaultLightTokens: ThemeTokens = {
   color: {
-    primary: '28.9 94.8% 45.1%',
+    primary: '221.2 83.2% 53.3%',
     'primary-foreground': '210 40% 98%',
     'primary-gradient': 'none',
     secondary: '188.5 35% 96%',
     'secondary-foreground': '222.2 47.4% 11.2%',
     muted: '188.5 12% 96%',
     'muted-foreground': '188.5 20% 46.9%',
-    accent: '112.7 40.2% 47.8%',
+    accent: '221.2 83.2% 53.3%',
     'accent-foreground': '210 40% 98%',
     destructive: '0 84.2% 60.2%',
     'destructive-foreground': '210 40% 98%',
@@ -220,8 +220,8 @@ export const defaultLightTokens: ThemeTokens = {
     'popover-foreground': '222.2 84% 4.9%',
     border: '188.5 20% 91.4%',
     input: '188.5 20% 91.4%',
-    ring: '28.9 94.8% 45.1%',
-    'chart-1': '28.9 94.8% 45.1%',
+    ring: '221.2 83.2% 53.3%',
+    'chart-1': '221.2 83.2% 53.3%',
     'chart-2': '160 60% 45%',
     'chart-3': '30 80% 55%',
     'chart-4': '280 65% 60%',

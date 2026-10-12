@@ -769,6 +769,30 @@ class ChatReplyStyleConfig(ConfigBase):
     """给指定群聊或私聊额外补充聊天要求；有特殊群规或语气要求时再加。"""
 
 
+class ChatTagMemoryConfig(ConfigBase):
+    """独立树状标签与周期清理；不控制现有人物画像。"""
+
+    __ui_label__ = "标签记忆"
+
+    enabled: bool = Field(default=True)
+    """启用树状标签存储与定期清理。"""
+
+    data_dir: str = Field(default="data/qq-agent")
+    """标签 SQLite 数据目录，相对路径从项目根目录解析。"""
+
+    retention_days: int = Field(default=14, ge=1)
+    """非活跃普通标签至少保留多少天；活跃及需要长期记忆的标签不自动清理。"""
+
+    cleanup_interval_days: int = Field(default=14, ge=1)
+    """实际清理间隔天数，成功清理时间持久化保存，重启不会重置周期。"""
+
+    batch_size: int = Field(default=25, ge=1)
+    """每累计多少条有效群文本统一提取标签，机器人沉默时同样执行。"""
+
+    max_wait_seconds: int = Field(default=1800, ge=1)
+    """从上一次成功提交起计时，每次提交重置；首次从首条有效文本起计时，有新消息才定时提取。"""
+
+
 class ChatConfig(ConfigBase):
     """聊天配置类"""
 
@@ -776,6 +800,9 @@ class ChatConfig(ConfigBase):
     __ui_order__ = 20
     __ui_use_subtabs__ = True
     __ui_root_sub_label__ = "基础设置"
+
+    tag_memory: ChatTagMemoryConfig = Field(default_factory=ChatTagMemoryConfig)
+    """树状标签存储及清理设置。"""
 
     priority_at_reply_enabled: bool = Field(
         default=True,
@@ -1481,7 +1508,7 @@ class AMemorixIntegrationConfig(ConfigBase):
     """是否在发送回复后自动提取并写回人物事实到长期记忆"""
 
     chat_summary_writeback_enabled: bool = Field(
-        default=True,
+        default=False,
         json_schema_extra={
             "label": {
                 "zh_CN": "写回聊天摘要",
@@ -1491,7 +1518,7 @@ class AMemorixIntegrationConfig(ConfigBase):
             "x-widget": "switch",
         },
     )
-    """是否在 Maisaka 聊天过程中按消息窗口自动写回聊天摘要到长期记忆"""
+    """旧群摘要写回开关；启用 chat.tag_memory 时停用，改为独立的 25 条/30 分钟标签提取。"""
 
     chat_summary_writeback_message_threshold: int = Field(
         default=36,
@@ -5350,7 +5377,7 @@ class WebUIConfig(ConfigBase):
     """WebUI 运行模式；普通使用保持 production。"""
 
     webui_style: int = Field(
-        default=1,
+        default=0,
         ge=0,
         le=2,
         json_schema_extra={

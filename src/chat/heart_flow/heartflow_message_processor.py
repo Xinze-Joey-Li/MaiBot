@@ -61,6 +61,9 @@ class HeartFCMessageReceiver:
 
             priority_at_reply = priority_at_reply_service.claim(message)
             await MessageUtils.store_message_to_db_async(message)  # 存储消息到数据库
+            from src.services.tag_extraction_service import tag_extraction_service
+
+            tag_extraction_service.notify_message_saved()
             if chat is not None:
                 await chat.register_message(message)
                 if priority_at_reply:

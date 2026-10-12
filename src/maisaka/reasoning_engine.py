@@ -551,6 +551,11 @@ class MaisakaReasoningEngine:
         injected_messages.extend(profile_messages)
         if image_memory_message:
             injected_messages.append(image_memory_message)
+        from src.services.tag_memory_recall import build_tag_memory_reference
+
+        tag_reference = await build_tag_memory_reference(self._runtime.session_id)
+        if tag_reference:
+            injected_messages.append(tag_reference)
         return injected_messages
 
     def _refresh_jargon_reference_message(self) -> Optional[ReferenceMessage]:

@@ -106,6 +106,7 @@ export const menuSections: MenuSection[] = [
         label: 'sidebar.menu.knowledgeBase',
         path: '/resource/knowledge-base',
       },
+      { icon: KnowledgeIcon, label: '标签记忆', literalLabel: true, path: '/resource/tag-memory' },
     ],
   },
   {

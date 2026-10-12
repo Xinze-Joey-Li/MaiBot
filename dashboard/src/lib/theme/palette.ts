@@ -6,8 +6,8 @@ type HSL = {
   l: number
 }
 
-export const DEFAULT_ACCENT_COLOR_HSL = '112.7 40.2% 47.8%'
-export const DEFAULT_ACCENT_COLOR_HEX = '#55AB49'
+export const DEFAULT_ACCENT_COLOR_HSL = '221.2 83.2% 53.3%'
+export const DEFAULT_ACCENT_COLOR_HEX = '#2563EB'
 
 const clamp = (value: number, min: number, max: number): number => {
   if (value < min) return min
@@ -181,7 +181,7 @@ export const generatePalette = (accentHSL: string, isDark: boolean): ColorTokens
 
   const background = isDark
     ? deriveSurfaceColor(accent, 0.2, 5.2, 8, 22)
-    : deriveSurfaceColor(accent, 0.12, 98.2, 4, 14)
+    : '0 0% 100%'
   const foreground = isDark
     ? deriveSurfaceColor(accent, 0.14, 97.2, 5, 18)
     : deriveSurfaceColor(accent, 0.28, 9.5, 8, 28)

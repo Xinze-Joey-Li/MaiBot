@@ -147,6 +147,12 @@ const personManagementRoute = createRoute({
   component: lazyRouteComponent(() => import('./routes/person'), 'PersonManagementPage'),
 })
 
+const tagMemoryRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: '/resource/tag-memory',
+  component: lazyRouteComponent(() => import('./routes/tag-memory'), 'TagMemoryPage'),
+})
+
 // 资源管理路由 - 黑话管理
 const jargonManagementRoute = createRoute({
   getParentRoute: () => protectedRoute,
@@ -386,6 +392,7 @@ const routeTree = rootRoute.addChildren([
     jargonManagementRoute,
     behaviorLearningRoute,
     personManagementRoute,
+    tagMemoryRoute,
     knowledgeGraphRoute,
     knowledgeBaseRoute,
     pluginsRoute,

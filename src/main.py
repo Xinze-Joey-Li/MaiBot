@@ -169,12 +169,16 @@ class MainSystem:
         # 初始化聊天管理器
         from src.chat.message_receive.chat_manager import chat_manager
         from src.services.memory_flow_service import memory_automation_service
+        from src.services.tag_extraction_service import tag_extraction_service
+        from src.services.tag_memory_service import tag_memory_service
 
         await chat_manager.initialize()
         asyncio.create_task(chat_manager.regularly_save_sessions())
 
         logger.info(t("startup.chat_manager_initialized"))
         await memory_automation_service.start()
+        await tag_memory_service.start()
+        await tag_extraction_service.start()
 
         # await asyncio.sleep(0.5) #防止logger输出飞了
 
@@ -278,8 +282,12 @@ async def main() -> None:
         from src.plugin_runtime.integration import get_plugin_runtime_manager
         from src.services.memory_flow_service import memory_automation_service
         from src.services.priority_at_reply_service import priority_at_reply_service
+        from src.services.tag_extraction_service import tag_extraction_service
+        from src.services.tag_memory_service import tag_memory_service
 
         await priority_at_reply_service.shutdown()
+        await tag_extraction_service.shutdown()
+        await tag_memory_service.shutdown()
         emoji_manager.shutdown()
         await image_manager.shutdown()
         await memory_automation_service.shutdown()
