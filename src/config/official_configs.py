@@ -4366,7 +4366,7 @@ class EmojiConfig(ConfigBase):
     """每隔多少分钟检查一次表情库状态。"""
 
     steal_emoji: bool = Field(
-        default=True,
+        default=False,
         json_schema_extra={
             "label": {
                 "zh_CN": "收集聊天表情",
