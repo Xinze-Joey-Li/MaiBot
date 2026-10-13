@@ -67,6 +67,12 @@ logger = get_logger("replyer")
 REPLYER_MAX_HOOK_RETRIES = 3
 TOOL_RESULT_MEDIA_SOURCE_KIND = "tool_result_media"
 DUPLICATE_TARGET_REPLY_REMINDER_ARG = "_duplicate_target_reply_reminder"
+INTERNAL_REPLY_LABEL_PATTERN = re.compile(
+    r"^\s*(?:\d{2}:\d{2}:\d{2}\s*)?(?:"
+    r"[\[【](?:发言内容|引用消息|消息类型|参考消息|回复信息参考|额外回复要求)[\]】]"
+    r"|[\[【](?:msg_id\s*:|标签记忆[：:])[^\]】]*[\]】])",
+    re.MULTILINE,
+)
 
 
 @dataclass
@@ -159,9 +165,15 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
         if message.source_kind not in {"guided_reply", "auto_repeat", "priority_at_reply"}:
             return ""
 
-        plain_text = message.processed_plain_text.strip()
-        _, body = parse_speaker_content(plain_text)
-        normalized_body = body.strip()
+        # 展示文本包含引用关系、消息 ID 和说话人，不应成为模型模仿的 assistant 正文。
+        if message.original_message is not None or any(
+            isinstance(component, ReplyComponent) for component in message.raw_message.components
+        ):
+            normalized_body = self._build_text_from_message_sequence(message).strip()
+        else:
+            # 合成的纯文本历史仍带说话人前缀，与真实消息组件采用不同的明确表示。
+            _, body = parse_speaker_content(message.processed_plain_text.strip())
+            normalized_body = body.strip()
         return self._normalize_content(normalized_body) if normalized_body else ""
 
     def _build_target_message_block(self, reply_message: Optional[SessionMessage]) -> str:
@@ -440,13 +452,19 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
             return (
                 "Please do not output any extra content (including unnecessary prefixes or suffixes, "
                 "colons, brackets, stickers, plain at, or @). Only output the message content itself."
+                " History labels such as [发言内容], [引用消息], [msg_id:...] and reference headings are metadata; "
+                "never copy them into your reply."
             )
         if locale.startswith("ja"):
             return (
                 "余計な内容（不要な前置きや後置き、コロン、括弧、スタンプ、通常の at や @ など）は出力せず、"
                 "発言内容だけを出力してください。"
+                "履歴の [发言内容]、[引用消息]、[msg_id:...] や参考見出しはメタ情報であり、返信に含めないでください。"
             )
-        return "请注意不要输出多余内容(包括不必要的前后缀，冒号，括号，表情包，@等 )，只输出发言内容就好。"
+        return (
+            "请注意不要输出多余内容(包括不必要的前后缀，冒号，括号，表情包，@等 )，只输出发言内容就好。"
+            "历史中的 [发言内容]、[引用消息]、[msg_id:...] 和参考信息标题属于元信息，禁止复制到回复正文。"
+        )
 
     @staticmethod
     def _replace_regex_capture_groups(reaction: str, match: re.Match[str]) -> str:
@@ -570,6 +588,7 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
         return (
             "请自然地回复。不要输出多余说明、括号、@ 或额外标记，"
             "只输出实际要发言的内容。"
+            + BaseMaisakaReplyGenerator._build_replyer_output_instruction()
         )
 
     @staticmethod
@@ -651,6 +670,9 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
             if isinstance(message, SessionBackedMessage):
                 guided_reply = self._extract_guided_bot_reply(message)
                 if guided_reply:
+                    # 已污染的旧机器人回复不能继续作为输出格式示例；真实用户正文不做删改。
+                    if INTERNAL_REPLY_LABEL_PATTERN.search(guided_reply):
+                        continue
                     items.append(
                         ContextItemBuilder().set_role(RoleType.Assistant).add_text_content(guided_reply).build()
                     )
@@ -1341,6 +1363,34 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
                     )
                 response_text = hook_modified_response
             generation_result.output_items = tuple(final_output_items)
+            internal_label = INTERNAL_REPLY_LABEL_PATTERN.search(response_text)
+            if internal_label:
+                # 共用生成入口覆盖普通 reply 与独立 @；格式失败明确记录，不静默裁剪正文。
+                format_reason = "模型输出包含内部上下文标签，需重新生成纯聊天正文。"
+                retry_reasons.append(format_reason)
+                retry_events.append({
+                    "attempt": str(retry_count + 1),
+                    "reason": format_reason,
+                    "matched_regex": "internal_reply_label",
+                    "matched_regex_pattern": INTERNAL_REPLY_LABEL_PATTERN.pattern,
+                    "matched_regex_description": "内部元信息不能作为回复正文",
+                    "rejected_response": response_text,
+                })
+                if retry_count >= REPLYER_MAX_HOOK_RETRIES:
+                    result.error_message = "回复持续包含内部上下文标签，已拒绝发送。"
+                    response_text = ""
+                    logger.error(f"{preview_chat_id}: {result.error_message}")
+                    break
+                retry_constraints.append(
+                    "上一版输出包含内部上下文标签。请重新生成自然聊天正文，不输出发言内容、引用消息、"
+                    "msg_id、消息类型、参考消息或标签记忆等元信息标记，也不要复述被拒绝的格式。"
+                )
+                retry_count += 1
+                logger.warning(
+                    f"{preview_chat_id}: 回复包含内部标签 {internal_label.group(0).strip()!r}，"
+                    f"重新生成 {retry_count}/{REPLYER_MAX_HOOK_RETRIES}"
+                )
+                continue
             retry_requested = self._coerce_hook_bool(after_response_kwargs.get("retry"), default=False)
             matched_regex = str(after_response_kwargs.get("matched_regex") or "").strip()
             matched_regex_pattern = str(after_response_kwargs.get("matched_regex_pattern") or "").strip()
@@ -1453,7 +1503,8 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
         )
 
         if not result.success:
-            result.error_message = "回复器返回了空内容"
+            if not result.error_message:
+                result.error_message = "回复器返回了空内容"
             logger.warning("Maisaka 回复器返回了空内容")
             return finalize(False)
 

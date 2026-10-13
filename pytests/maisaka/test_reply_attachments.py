@@ -30,7 +30,7 @@ def reply_context(monkeypatch):
     user = SimpleNamespace(user_id="user-1", user_nickname="小明", user_cardname="")
     source = SimpleNamespace(
         message_id="msg-1",
-        message_info=SimpleNamespace(user_info=user),
+        message_info=SimpleNamespace(user_info=user, additional_config={}),
         raw_message=MessageSequence([
             TextComponent("图片"),
             ImageComponent(binary_hash="image-0", binary_data=b"first"),
