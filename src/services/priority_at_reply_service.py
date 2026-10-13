@@ -71,10 +71,29 @@ class PriorityAtReplyService:
         runtime: "MaisakaHeartFlowChatting",
         history: List["LLMContextMessage"],
     ) -> None:
-        if random.random() < 0.5:
+        if self._is_standalone_bot_at(message) and random.random() < 0.5:
             await self._send_emoji(message)
         else:
             await self._send_text(message, runtime, history)
+
+    @staticmethod
+    def _is_standalone_bot_at(message: "SessionMessage") -> bool:
+        """只允许单个机器人 @ 和空白，不把显示名或媒体误当成空正文。"""
+        from src.common.data_models.message_component_data_model import AtComponent, TextComponent
+        from src.services.bot_account_service import is_bot_self
+
+        at_count = 0
+        for component in message.raw_message.components:
+            if isinstance(component, AtComponent):
+                if not is_bot_self(message.platform, component.target_user_id):
+                    return False
+                at_count += 1
+            elif isinstance(component, TextComponent):
+                if component.text.strip():
+                    return False
+            else:
+                return False
+        return at_count == 1
 
     async def _send_emoji(self, message: "SessionMessage") -> None:
         from src.common.data_models.message_component_data_model import EmojiComponent, MessageSequence
@@ -83,24 +102,20 @@ class PriorityAtReplyService:
         from src.emoji_system.emoji_manager import emoji_manager
         from src.services.send_service import send_priority_at_reply
 
-        # 按哈希固定候选；去重使每个表情等概率，配置错误完整暴露，不从全库补选。
+        # 配置候选先去重，再等概率抽取；不可用的固定候选明确报错，不替换成其它表情。
         hashes = list(dict.fromkeys(value.strip() for value in global_config.chat.priority_at_reply_emoji_hashes))
         if not hashes:
             raise RuntimeError("@ 即时回复固定表情列表尚未配置")
         emojis = []
-        invalid_hashes = []
         for emoji_hash in hashes:
             emoji = emoji_manager.get_emoji_by_hash(emoji_hash)
             if emoji is None:
-                invalid_hashes.append(emoji_hash)
-            else:
-                emojis.append(emoji)
-        if invalid_hashes:
-            raise RuntimeError(f"@ 固定表情未注册或不可用: {invalid_hashes}")
+                raise RuntimeError(f"@ 固定表情未注册或不可用: {emoji_hash}")
+            emojis.append(emoji)
         emoji = random.choice(emojis)
         image_bytes = await asyncio.to_thread(lambda: resolve_stored_image_path(emoji.full_path).read_bytes())
         sequence = MessageSequence([EmojiComponent(binary_hash=emoji.file_hash, binary_data=image_bytes)])
-        if not await send_priority_at_reply(sequence, message):
+        if not await send_priority_at_reply(sequence, message, set_reply=False):
             raise RuntimeError("@ 表情回复发送失败")
 
     async def _send_text(

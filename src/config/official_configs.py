@@ -815,7 +815,7 @@ class ChatConfig(ConfigBase):
             "x-widget": "switch",
         },
     )
-    """@ 机器人必定启动独立回复，不占队列或发言额度；50% 表情包，50% 模型文本。"""
+    """@ 机器人必定启动独立回复，不占队列或发言额度；仅单独 @ 时以 50% 概率发送表情，带正文时使用模型文本。"""
 
     priority_at_reply_emoji_hashes: List[str] = Field(
         default_factory=list,
@@ -828,7 +828,7 @@ class ChatConfig(ConfigBase):
             "x-widget": "tags",
         },
     )
-    """填写已注册表情包的哈希值；@ 的表情分支仅从此列表随机选择，不使用其他表情。"""
+    """填写已注册表情包的哈希值；单独 @ 的表情分支从此列表去重后等概率随机选择，不使用其他表情。"""
 
     auto_repeat_enabled: bool = Field(
         default=True,

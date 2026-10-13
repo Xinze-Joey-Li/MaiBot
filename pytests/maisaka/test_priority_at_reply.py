@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import asyncio
 
+from src.common.data_models.message_component_data_model import AtComponent, ImageComponent, MessageSequence, TextComponent
 from src.services.priority_at_reply_service import PriorityAtReplyService
 
 
@@ -29,6 +30,7 @@ class PriorityAtReplyTest(IsolatedAsyncioTestCase):
         return SimpleNamespace(
             session_id=session_id, message_id=message_id, platform="qq", is_at=False, is_mentioned=False,
             is_notify=False, is_command=False,
+            raw_message=MessageSequence([AtComponent("bot")]),
             message_info=SimpleNamespace(additional_config={}, user_info=SimpleNamespace(user_id=user)),
         )
 
@@ -60,7 +62,9 @@ class PriorityAtReplyTest(IsolatedAsyncioTestCase):
     async def test_half_probability_boundary(self) -> None:
         emoji = AsyncMock()
         text = AsyncMock()
-        with patch.object(self.service, "_send_emoji", emoji), patch.object(self.service, "_send_text", text):
+        with patch.dict("sys.modules", self.modules), patch.object(
+            self.service, "_send_emoji", emoji
+        ), patch.object(self.service, "_send_text", text):
             for value in (0.0, 0.499999):
                 with patch("src.services.priority_at_reply_service.random.random", return_value=value):
                     await self.service._reply(self.message(), self.runtime, [])
@@ -69,6 +73,37 @@ class PriorityAtReplyTest(IsolatedAsyncioTestCase):
                     await self.service._reply(self.message(), self.runtime, [])
         self.assertEqual(emoji.await_count, 2)
         self.assertEqual(text.await_count, 2)
+
+    async def test_only_single_bot_at_and_whitespace_can_use_emoji_branch(self) -> None:
+        message = self.message()
+        cases = [
+            ([AtComponent("bot"), TextComponent(" \n")], True),
+            ([AtComponent("bot"), TextComponent("在吗")], False),
+            ([TextComponent("在吗"), AtComponent("bot")], False),
+            ([AtComponent("bot"), AtComponent("other")], False),
+            ([AtComponent("bot"), AtComponent("bot")], False),
+            ([AtComponent("bot"), ImageComponent(binary_hash="image")], False),
+            ([TextComponent("@bot")], False),
+            ([], False),
+        ]
+        with patch.dict("sys.modules", self.modules):
+            for components, expected in cases:
+                with self.subTest(expected=expected, components=components):
+                    message.raw_message = MessageSequence(components)
+                    self.assertEqual(self.service._is_standalone_bot_at(message), expected)
+
+    async def test_at_with_text_skips_random_and_uses_text_reply(self) -> None:
+        message = self.message()
+        message.raw_message = MessageSequence([AtComponent("bot"), TextComponent("解释一下")])
+        emoji, text = AsyncMock(), AsyncMock()
+        with patch.dict("sys.modules", self.modules), patch.object(
+            self.service, "_send_emoji", emoji
+        ), patch.object(self.service, "_send_text", text), patch(
+            "src.services.priority_at_reply_service.random.random", side_effect=AssertionError("不应抽签")
+        ):
+            await self.service._reply(message, self.runtime, [])
+        emoji.assert_not_awaited()
+        text.assert_awaited_once_with(message, self.runtime, [])
 
     async def test_new_at_does_not_wait_for_previous_at(self) -> None:
         started = []
@@ -154,7 +189,7 @@ class PriorityAtReplyTest(IsolatedAsyncioTestCase):
                 await self.service._send_emoji(self.message())
         lookup.assert_not_called()
 
-    async def test_only_fixed_emojis_are_selected_and_duplicates_have_no_extra_weight(self) -> None:
+    async def test_emoji_branch_randomly_selects_only_distinct_configured_candidates(self) -> None:
         self.config.chat.priority_at_reply_emoji_hashes = ["first", "second", " first "]
         first = SimpleNamespace(file_hash="first", full_path="a")
         second = SimpleNamespace(file_hash="second", full_path="b")
@@ -166,8 +201,9 @@ class PriorityAtReplyTest(IsolatedAsyncioTestCase):
         ) as choose:
             await self.service._send_emoji(target)
         choose.assert_called_once_with([first, second])
+        self.assertEqual(lookup.call_count, 2)
         modules["src.services.send_service"].send_priority_at_reply.assert_awaited_once_with(
-            [{"binary_hash": "second", "binary_data": b"emoji"}], target
+            [{"binary_hash": "second", "binary_data": b"emoji"}], target, set_reply=False
         )
 
     async def test_invalid_fixed_emoji_fails_without_using_other_emojis(self) -> None:
