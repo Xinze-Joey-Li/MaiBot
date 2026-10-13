@@ -889,11 +889,34 @@ async def _send_via_platform_io(
             reply_message_id=reply_message_id,
             reply_message=reply_message,
         )
-        delivery_batch = await platform_io_manager.send_message(
-            message,
-            route_key,
-            metadata={"show_log": False},
+        from src.services.group_emoji_gate import group_emoji_gate
+
+        group_info = message.message_info.group_info
+        contains_emoji = any(isinstance(component, EmojiComponent) for component in message.raw_message.components)
+        exempt_emoji = any(
+            message.message_info.additional_config.get(key) is True
+            for key in ("silence_emoji", "priority_at_response")
         )
+        emoji_key = (
+            (message.platform, str(group_info.group_id))
+            if group_info is not None and contains_emoji and not exempt_emoji else None
+        )
+        if emoji_key is not None:
+            if not group_emoji_gate.acquire(emoji_key):
+                logger.info(f"[SendService] 群表情处于两分钟冷却或正在发送: {emoji_key}")
+                return None
+        # 暖群和独立 @ 表情豁免，不占用或重置冷却；普通表情从平台成功回执开始计时。
+        emoji_sent = False
+        try:
+            delivery_batch = await platform_io_manager.send_message(
+                message,
+                route_key,
+                metadata={"show_log": False},
+            )
+            emoji_sent = bool(delivery_batch.has_success)
+        finally:
+            if emoji_key is not None:
+                group_emoji_gate.finish(emoji_key, emoji_sent)
     except Exception as exc:
         logger.error(f"[SendService] Platform IO 发送异常: {exc}", exc_info=True)
         return None
@@ -917,7 +940,7 @@ async def _send_via_platform_io(
         from src.services.group_silence_emoji_service import group_silence_emoji_service
 
         group_silence_emoji_service.record_activity(message)
-        _record_sent_emoji_usage(message)
+        await asyncio.to_thread(_record_sent_emoji_usage, message)
         if storage_message:
             await _store_sent_message(message)
         await _notify_memory_automation_on_message_sent(message)

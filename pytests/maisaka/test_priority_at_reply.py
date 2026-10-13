@@ -216,7 +216,7 @@ class PriorityAtReplyTest(IsolatedAsyncioTestCase):
         modules["src.services.send_service"].send_priority_at_reply.assert_not_awaited()
 
     async def test_model_uses_existing_replyer_and_target(self) -> None:
-        result = SimpleNamespace(completion=SimpleNamespace(response_text="回复内容"), error_message="")
+        result = SimpleNamespace(completion=SimpleNamespace(response_text="回复内容"), error_message="", selected_emoji_tag="")
         generator = Mock()
         generator.generate_reply_with_context = AsyncMock(return_value=(True, result))
         factory = Mock(return_value=generator)

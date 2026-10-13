@@ -140,10 +140,9 @@ def _get_builtin_tool_entries(
 def _is_builtin_tool_enabled_by_config(entry: BuiltinToolEntry) -> bool:
     """根据全局配置判断内置工具是否应暴露。"""
 
-    if entry.name == "show_emoji_list":
-        return global_config.emoji.use_new_send_logic
-    if entry.name == "send_emoji":
-        return not global_config.emoji.use_new_send_logic
+    # 表情随 Replyer 文字自动选择 tag，不再让 Planner 看拼图或额外调用选择模型。
+    if entry.name in {"show_emoji_list", "send_emoji"}:
+        return False
     if entry.name in {"fetch_history", "switch_chat"}:
         return bool(global_config.experimental.focus_mode)
     return True

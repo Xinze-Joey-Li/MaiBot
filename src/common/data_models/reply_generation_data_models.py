@@ -106,6 +106,10 @@ class ReplyGenerationResult(BaseDataModel):
         default_factory=list,
         metadata={"description": "本次选中的表达方式 ID 列表。"},
     )
+    selected_emoji_tag: str = field(
+        default="",
+        metadata={"description": "Replyer 在同次请求中选择的表情库 tag；空字符串表示不附带表情。"},
+    )
     selected_expression_details: List[Dict[str, Any]] = field(
         default_factory=list,
         metadata={"description": "本次选中的表达方式详情列表。"},

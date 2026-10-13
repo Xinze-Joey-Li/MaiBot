@@ -32,6 +32,7 @@ from src.maisaka.context.message_id_alias import to_display_message_id
 from src.config.model_configs import ModelInfo
 from src.config.official_configs import build_personality_emotion_suffix
 from src.core.types import ActionInfo
+from src.emoji_system.reply_attachment import build_tag_prompt, extract_tag, get_tag_candidates
 from src.llm_models.payload_content.context_item import (
     AssistantMessageItem,
     CONTEXT_ITEM_SCHEMA_VERSION,
@@ -393,10 +394,6 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
         ]
         if at_targets:
             lines.append(f"除了当前你输出的回复，你还会（由另一个模型控制）at {self._join_chinese_items(at_targets)}。")
-
-        raw_emoji = str(reply_tool_args.get("attach_emoji") or "").strip()
-        if raw_emoji:
-            lines.append(f"当前文字回复后还会单独发送已选中的第 {raw_emoji} 号表情包，无需在正文中输出序号。")
 
         if not lines:
             return ""
@@ -1114,6 +1111,8 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
              if reply_message is not None and reply_message.processed_plain_text is not None else ""),
             [str(reply_message.message_info.user_info.user_id)] if reply_message is not None else [],
         )
+        emoji_candidates = get_tag_candidates()
+        emoji_tag_prompt = build_tag_prompt(emoji_candidates)
         retry_constraints: List[str] = []
         retry_reasons: List[str] = []
         retry_events: List[Dict[str, Any]] = []
@@ -1155,7 +1154,10 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
                 active_task_name = default_task_name
             active_model_name = str(before_request_kwargs.get("model_name") or "").strip() or None
             active_reply_requirements = self._build_reply_requirements(
-                "\n\n".join(part for part in (str(before_request_kwargs.get("extra_prompt") or ""), tag_reference) if part),
+                "\n\n".join(
+                    part for part in (str(before_request_kwargs.get("extra_prompt") or ""), tag_reference, emoji_tag_prompt)
+                    if part
+                ),
                 retry_constraints,
             )
 
@@ -1363,6 +1365,7 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
                     )
                 response_text = hook_modified_response
             generation_result.output_items = tuple(final_output_items)
+            response_text, selected_emoji_tag = extract_tag(response_text, emoji_candidates)
             internal_label = INTERNAL_REPLY_LABEL_PATTERN.search(response_text)
             if internal_label:
                 # 共用生成入口覆盖普通 reply 与独立 @；格式失败明确记录，不静默裁剪正文。
@@ -1444,6 +1447,7 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
             break
 
         generation_result.generation_attempts = tuple(all_generation_attempts)
+        result.selected_emoji_tag = selected_emoji_tag
         result.success = bool(response_text)
         result.output_items = serialize_context_items_snapshot(generation_result.output_items)
         result.generation_attempts = self._serialize_generation_attempts(generation_result)

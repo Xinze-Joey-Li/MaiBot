@@ -10,6 +10,7 @@ import traceback
 from src.chat.replyer.replyer_manager import replyer_manager
 from src.chat.utils.utils import is_bot_self
 from src.cli.maisaka_cli_sender import CLI_PLATFORM_NAME, render_cli_message
+from src.common.data_models.message_component_data_model import TextComponent
 from src.common.data_models.reply_generation_data_models import ReplyGenerationResult, build_reply_monitor_detail
 from src.common.logger import get_logger
 from src.config import config as config_module
@@ -203,12 +204,6 @@ def get_tool_spec(context: Optional[ToolAvailabilityContext] = None) -> ToolSpec
         },
         "default": [],
     }
-    if config_module.global_config.emoji.use_new_send_logic:
-        properties["attach_emoji"] = {
-            "type": "integer",
-            "minimum": 1,
-            "description": "可选。从 show_emoji_list 的拼图选择一个表情包，填写图片序号，在文字后单独发送。",
-        }
     if config_module.global_config.chat.enable_reply_at:
         properties["attach_at"] = {
             "type": "array",
@@ -354,9 +349,9 @@ async def handle_tool(
     set_quote = bool(invocation_arguments.get("set_quote", True))
     if invocation_arguments.get("attach_at") and not config_module.global_config.chat.enable_reply_at:
         return tool_ctx.build_failure_result(invocation.tool_name, "回复时 @ 用户已关闭，不能使用 attach_at。")
-    if invocation_arguments.get("attach_emoji") is not None and not config_module.global_config.emoji.use_new_send_logic:
+    if invocation_arguments.get("attach_emoji") is not None:
         return tool_ctx.build_failure_result(
-            invocation.tool_name, "新表情包发送逻辑未开启，请使用 send_emoji 工具。"
+            invocation.tool_name, "表情由 Replyer 根据 tag 自动选择，不支持 attach_emoji。"
         )
     reply_tool_args = {
         key: value
@@ -620,6 +615,10 @@ async def handle_tool(
                     )
                 )
                 previous_sent_message = sent_message
+                if any(isinstance(component, TextComponent) for component in reply_sequence.components):
+                    from src.emoji_system.reply_attachment import send_after_text
+
+                    await send_after_text(tool_ctx.runtime.session_id, reply_result.selected_emoji_tag)
     except Exception:
         logger.exception(f"{tool_ctx.runtime.log_prefix} 发送文字消息时发生异常，目标消息编号={target_message_id}")
         return tool_ctx.build_failure_result(

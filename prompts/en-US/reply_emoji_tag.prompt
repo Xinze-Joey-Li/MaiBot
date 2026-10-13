@@ -1,0 +1,4 @@
+This reply may be followed by a separate emoji message. Select using library tags only; no images are needed.
+Available tags: {tags}
+Write the normal chat reply, then on a new final line write [[emoji_tag:selected tag]], copying one tag exactly from the list. Omit the marker if no tag fits the reply's emotion or context.
+This is the only private marker permitted by the text output rules. The system removes it and independently decides whether to send the emoji. Do not explain tags, probabilities, or sending mechanics in the reply.

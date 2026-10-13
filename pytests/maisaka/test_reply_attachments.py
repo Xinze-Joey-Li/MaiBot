@@ -20,6 +20,7 @@ from src.maisaka.builtin_tool import build_builtin_tool_handlers, get_all_builti
 from src.maisaka.builtin_tool import context as context_module
 from src.maisaka.builtin_tool import reply as reply_tool
 from src.maisaka.builtin_tool.context import BuiltinToolRuntimeContext
+from src.maisaka.builtin_tool.context import PostProcessedReplyMessage
 from src.maisaka.context.messages import SessionBackedMessage
 
 
@@ -58,9 +59,9 @@ def test_reply_tools_follow_independent_switches(reply_context, monkeypatch, ena
     properties = reply_tool.get_tool_spec().parameters_schema["properties"]
     assert "attach_pic" in properties
     assert ("attach_at" in properties) == enable_at
-    assert ("attach_emoji" in properties) == new_emoji
-    assert ("show_emoji_list" in names) == new_emoji
-    assert ("send_emoji" in names) != new_emoji
+    assert "attach_emoji" not in properties
+    assert "show_emoji_list" not in names
+    assert "send_emoji" not in names
     assert "send_image" not in names
     assert "send_image" not in build_builtin_tool_handlers(reply_context)
 
@@ -184,7 +185,41 @@ def test_attachment_prompt_covers_mentions_and_media(reply_context, locale):
     prompt = generator._build_reply_attachment_prompt(
         chat_history=[], reply_message=reply_context.runtime.find_source_message_by_id("msg-1"), reply_tool_args=arguments,
     )
-    assert "26" in prompt and "@小明" in prompt and "URL" in prompt
+    assert "26" not in prompt and "@小明" in prompt and "URL" in prompt
     assert "{attachments}" not in prompt
     metadata = list_prompt_templates(locale=locale)["reply_attachments"].metadata
     assert metadata.display_name and metadata.description
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("second_sent", [True, False])
+async def test_each_successful_text_segment_gets_one_attachment_attempt(reply_context, monkeypatch, second_sent):
+    generator = SimpleNamespace(generate_reply_with_context=AsyncMock(return_value=(
+        True, ReplyGenerationResult(
+            success=True, completion=LLMCompletionResult(response_text="第一句第二句"), selected_emoji_tag="开心",
+        ),
+    )))
+    monkeypatch.setattr(reply_tool.replyer_manager, "get_replyer", lambda **kwargs: generator)
+    monkeypatch.setattr(reply_tool, "_invoke_before_post_process_hook", AsyncMock(return_value=("第一句第二句", {})))
+    monkeypatch.setattr(reply_context, "post_process_reply_message_items_async", AsyncMock(return_value=[
+        PostProcessedReplyMessage(sequence=MessageSequence([TextComponent(text)]))
+        for text in ("第一句", "第二句")
+    ]))
+    events = []
+
+    async def send(**kwargs):
+        events.append(kwargs["processed_plain_text"])
+        if kwargs["processed_plain_text"] == "第二句" and not second_sent:
+            return None
+        return SimpleNamespace(message_id="sent")
+
+    async def attach(stream_id, tag):
+        events.append((stream_id, tag))
+
+    monkeypatch.setattr(reply_tool.send_service, "_send_to_target_with_message", send)
+    monkeypatch.setattr("src.emoji_system.reply_attachment.send_after_text", attach)
+    result = await reply_tool.handle_tool(reply_context, ToolInvocation("reply", arguments={"msg_id": "msg-1"}))
+    assert result.success == second_sent
+    assert events == ["第一句", ("session-1", "开心"), "第二句"] + (
+        [("session-1", "开心")] if second_sent else []
+    )

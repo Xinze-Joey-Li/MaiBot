@@ -395,8 +395,8 @@ class BuiltinToolRuntimeContext:
 
         if attachment_args.get("attach_at") and not global_config.chat.enable_reply_at:
             raise ValueError("回复时 @ 用户已关闭，不能使用 attach_at。")
-        if attachment_args.get("attach_emoji") is not None and not global_config.emoji.use_new_send_logic:
-            raise ValueError("新表情包发送逻辑未开启，请使用 send_emoji 工具。")
+        if attachment_args.get("attach_emoji") is not None:
+            raise ValueError("表情由 Replyer 根据 tag 自动选择，不支持 attach_emoji。")
 
         at_components = [
             self._resolve_at_attachment(raw_target)
@@ -406,10 +406,7 @@ class BuiltinToolRuntimeContext:
             await self._resolve_image_attachment(raw_attachment)
             for raw_attachment in self._normalize_attachment_list(attachment_args.get("attach_pic"), "attach_pic")
         ]
-        raw_emoji = attachment_args.get("attach_emoji")
-        emoji_components = [await self._resolve_emoji_attachment(raw_emoji)] if raw_emoji is not None else []
-
-        if not at_components and not image_components and not emoji_components:
+        if not at_components and not image_components:
             return items
 
         if not items:
@@ -421,8 +418,6 @@ class BuiltinToolRuntimeContext:
 
         items[0].sequence.components = at_prefix_components + items[0].sequence.components
         items[-1].sequence.components.extend(image_components)
-        if emoji_components:
-            items.append(PostProcessedReplyMessage(sequence=MessageSequence(emoji_components)))
         return items
 
     def get_runtime_manager(self) -> Any:

@@ -126,6 +126,7 @@ class PriorityAtReplyService:
     ) -> None:
         from src.chat.replyer.maisaka_generator import MaisakaReplyGenerator
         from src.common.data_models.message_component_data_model import MessageSequence, TextComponent
+        from src.emoji_system.reply_attachment import send_after_text
         from src.services.send_service import send_priority_at_reply
 
         replyer = MaisakaReplyGenerator(chat_stream=runtime.chat_stream, request_type="priority_at.replyer")
@@ -138,6 +139,7 @@ class PriorityAtReplyService:
         sequence = MessageSequence([TextComponent(result.completion.response_text.strip())])
         if not await send_priority_at_reply(sequence, message):
             raise RuntimeError("@ 模型回复发送失败")
+        await send_after_text(message.session_id, result.selected_emoji_tag)
 
     async def shutdown(self) -> None:
         tasks = list(self._tasks.values())
