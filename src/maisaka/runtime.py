@@ -521,6 +521,8 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
 
         user_info = message.message_info.user_info
         if is_bot_self(message.platform, user_info.user_id):
+            if message.message_info.additional_config.get("silence_emoji") is True:
+                return "silence_emoji"
             if (message.message_info.additional_config or {}).get("priority_at_response") is True:
                 return "priority_at_reply"
             if (message.message_info.additional_config or {}).get("auto_repeat") is True:
@@ -593,7 +595,7 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
                 quote_ids=extract_quote_ids_from_message_sequence(message.raw_message),
                 include_message_id=not message.is_notify and bool(message.message_id),
                 include_chat_id=include_chat_id,
-                is_self_message=source_kind in {"guided_reply", "auto_repeat", "priority_at_reply"},
+                is_self_message=source_kind in {"guided_reply", "auto_repeat", "priority_at_reply", "silence_emoji"},
             )
             history_message = SessionBackedMessage.from_session_message(
                 message,

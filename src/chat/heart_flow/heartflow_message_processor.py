@@ -61,6 +61,9 @@ class HeartFCMessageReceiver:
 
             priority_at_reply = priority_at_reply_service.claim(message)
             await MessageUtils.store_message_to_db_async(message)  # 存储消息到数据库
+            from src.services.group_silence_emoji_service import group_silence_emoji_service
+
+            group_silence_emoji_service.record_activity(message)
             from src.services.tag_extraction_service import tag_extraction_service
 
             tag_extraction_service.notify_message_saved()

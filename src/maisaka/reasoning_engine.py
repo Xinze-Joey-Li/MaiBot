@@ -276,7 +276,7 @@ class MaisakaReasoningEngine:
     ) -> list[LLMContextMessage]:
         """场景概括只看真实聊天消息，不混入参考、assistant 或工具历史。"""
 
-        allowed_source_kinds = {"user", "guided_reply", "outbound_send", "auto_repeat", "priority_at_reply"}
+        allowed_source_kinds = {"user", "guided_reply", "outbound_send", "auto_repeat", "priority_at_reply", "silence_emoji"}
         return [
             message
             for message in context_messages
@@ -398,7 +398,7 @@ class MaisakaReasoningEngine:
                 if not isinstance(history_message, SessionBackedMessage):
                     continue
                 if history_message.source_kind not in {
-                    "user", "guided_reply", "outbound_send", "auto_repeat", "priority_at_reply"
+                    "user", "guided_reply", "outbound_send", "auto_repeat", "priority_at_reply", "silence_emoji"
                 }:
                     continue
                 self._append_behavior_selector_context_item(
@@ -421,7 +421,7 @@ class MaisakaReasoningEngine:
                 if not isinstance(history_message, SessionBackedMessage):
                     continue
                 if history_message.source_kind not in {
-                    "user", "guided_reply", "outbound_send", "auto_repeat", "priority_at_reply"
+                    "user", "guided_reply", "outbound_send", "auto_repeat", "priority_at_reply", "silence_emoji"
                 }:
                     continue
                 self._append_behavior_selector_context_item(
@@ -1355,7 +1355,7 @@ class MaisakaReasoningEngine:
         planner_prefix = build_planner_user_prefix_from_session_message(
             message,
             include_chat_id=include_chat_id,
-            is_self_message=source_kind in {"guided_reply", "auto_repeat", "priority_at_reply"},
+            is_self_message=source_kind in {"guided_reply", "auto_repeat", "priority_at_reply", "silence_emoji"},
         )
         if contains_complex_message(source_sequence):
             return ComplexSessionMessage.from_session_message(

@@ -754,8 +754,8 @@ async def _notify_memory_automation_on_message_sent(message: SessionMessage) -> 
     Args:
         message: 已成功发送的内部消息对象。
     """
-    # 自动复读没有模型生成的新事实，不触发人物事实或群聊摘要写回。
-    if (message.message_info.additional_config or {}).get("auto_repeat") is True:
+    # 自动复读和独立静默表情没有模型生成的新事实，不触发人物事实或群聊摘要写回。
+    if any(message.message_info.additional_config.get(key) is True for key in ("auto_repeat", "silence_emoji")):
         return
     try:
         from src.services.memory_flow_service import memory_automation_service
@@ -914,6 +914,9 @@ async def _send_via_platform_io(
     )
 
     if delivery_batch.has_success:
+        from src.services.group_silence_emoji_service import group_silence_emoji_service
+
+        group_silence_emoji_service.record_activity(message)
         _record_sent_emoji_usage(message)
         if storage_message:
             await _store_sent_message(message)
@@ -1141,18 +1144,34 @@ async def _send_to_target_with_message(
         return None
 
 
-async def send_priority_at_reply(sequence: MessageSequence, target: SessionMessage) -> bool:
-    """直接发送 @ 回复并引用原消息，不经过 Planner 或回复额度记账。"""
-    message = _build_outbound_session_message(sequence, target.session_id, reply_message=target)
+async def send_priority_at_reply(
+    sequence: MessageSequence, target: SessionMessage, *, set_reply: bool = True
+) -> bool:
+    """直接发送 @ 回复，可选引用原消息，不经过 Planner 或回复额度记账。"""
+    message = _build_outbound_session_message(sequence, target.session_id, reply_message=target if set_reply else None)
     if message is None:
         return False
     message.message_id = f"priority_at_{uuid.uuid4().hex}"
     message.message_info.additional_config["priority_at_response"] = True
     sent_message = await send_session_message_with_message(
-        message, typing=False, set_reply=True, reply_message_id=target.message_id, reply_message=target,
+        message, typing=False, set_reply=set_reply,
+        reply_message_id=target.message_id if set_reply else None, reply_message=target if set_reply else None,
         storage_message=True, sync_to_maisaka_history=True, maisaka_source_kind="priority_at_reply",
     )
     return sent_message is not None
+
+
+async def send_group_silence_emoji(sequence: MessageSequence, session_id: str) -> bool:
+    """发送独立静默表情，不引用消息、不进入 Planner 或记忆写回。"""
+    message = _build_outbound_session_message(sequence, session_id)
+    if message is None:
+        return False
+    message.message_info.additional_config["silence_emoji"] = True
+    sent = await send_session_message_with_message(
+        message, typing=False, set_reply=False, storage_message=True,
+        sync_to_maisaka_history=True, maisaka_source_kind="silence_emoji",
+    )
+    return sent is not None
 
 
 async def auto_repeat_to_stream(text: str, stream_id: str) -> bool:

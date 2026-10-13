@@ -229,6 +229,7 @@ class MainSystem:
                 should_schedule_image_path_maintenance_background,
             )
             from src.webui.routers.data_transfer import periodic_transfer_temp_cleanup
+            from src.services.group_silence_emoji_service import group_silence_emoji_service
 
             # 在独立线程中巡检推理图片，空闲时也能清理旧版本遗留的孤立缓存。
             PromptPreviewLogger.start()
@@ -237,6 +238,7 @@ class MainSystem:
                 raise RuntimeError("消息服务未初始化")
 
             tasks = [
+                group_silence_emoji_service.run(),
                 emoji_manager.periodic_emoji_maintenance(),
                 periodic_emoji_cache_cleanup(),
                 periodic_image_cache_cleanup(),
