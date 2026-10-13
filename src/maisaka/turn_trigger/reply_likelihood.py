@@ -6,8 +6,8 @@
 """
 
 from dataclasses import dataclass
-from math import exp, log1p
-from typing import Sequence, Tuple
+from math import exp, isfinite, log1p
+from typing import Dict, Sequence, Tuple
 
 MAX_PENDING_COUNT = 20
 """待处理消息数进入函数前的上限，与拟合时的截断一致。"""
@@ -18,16 +18,32 @@ DEFAULT_SECONDS_SINCE_BOT_MESSAGE = 3600.0
 MEDIA_PLACEHOLDER_PREFIXES = ("[表情包", "[图片", "[消息类型]", "[CQ:image", "[语音", "[文件]", "[卡片")
 """只有媒体占位、没有文字内容的消息前缀。"""
 
-# 拟合权重：logit = 截距 + Σ 权重 × 特征
-_INTERCEPT = -1.2005
-_WEIGHT_MENTION_BOT = 1.5852
-_WEIGHT_AT_OTHER = -1.1157
-_WEIGHT_QUESTION_MARK = 0.4807
-_WEIGHT_PLACEHOLDER_ONLY = -1.0281
-_WEIGHT_RECENT_SELF_RATIO = 2.6525
-_WEIGHT_RECENT_MESSAGE_COUNT = -0.0367
-_WEIGHT_LOG_SECONDS_SINCE_BOT = 0.0571
-_WEIGHT_PENDING_COUNT = 0.1012
+@dataclass(frozen=True, slots=True)
+class ReplyLikelihoodWeights:
+    """回复评分权重；默认值沿用离线拟合结果，不在运行时自动学习。"""
+
+    # 拟合权重：logit = 截距 + Σ 权重 × 特征。调整系数后需重新评估门控阈值。
+    intercept: float = -1.2005
+    mention_bot: float = 1.5852
+    at_other: float = -1.1157
+    question_mark: float = 0.4807
+    placeholder_only: float = -1.0281
+    recent_self_ratio: float = 2.6525
+    recent_message_count: float = -0.0367
+    log_seconds_since_bot: float = 0.0571
+    pending_count: float = 0.1012
+
+    def __post_init__(self) -> None:
+        values = (
+            self.intercept, self.mention_bot, self.at_other, self.question_mark,
+            self.placeholder_only, self.recent_self_ratio, self.recent_message_count,
+            self.log_seconds_since_bot, self.pending_count,
+        )
+        if not all(isfinite(value) for value in values):
+            raise ValueError("回复评分权重必须是有限数值")
+
+
+DEFAULT_REPLY_WEIGHTS = ReplyLikelihoodWeights()
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,18 +87,56 @@ def summarize_pending_texts(texts: Sequence[str], *, has_at_bot: bool) -> Tuple[
     return at_other, has_question_mark, placeholder_only
 
 
-def estimate_reply_probability(likelihood_input: ReplyLikelihoodInput) -> float:
+@dataclass(frozen=True, slots=True)
+class ReplyLikelihoodScore:
+    """一次评分的概率、加权总分及各特征贡献，供调度和排查使用。"""
+
+    probability: float
+    logit: float
+    contributions: Dict[str, float]
+
+    @property
+    def detail(self) -> str:
+        return " ".join(f"{name}={value:+.3f}" for name, value in self.contributions.items())
+
+
+def score_reply_likelihood(
+    likelihood_input: ReplyLikelihoodInput,
+    *,
+    weights: ReplyLikelihoodWeights = DEFAULT_REPLY_WEIGHTS,
+) -> ReplyLikelihoodScore:
+    """本地计算评分；贡献值是 logit 的加减分，不是概率百分点。"""
+
+    contributions = {
+        "intercept": weights.intercept,
+        "mention_bot": weights.mention_bot * float(likelihood_input.mention_bot),
+        "at_other": weights.at_other * float(likelihood_input.at_other),
+        "question_mark": weights.question_mark * float(likelihood_input.has_question_mark),
+        "placeholder_only": weights.placeholder_only * float(likelihood_input.placeholder_only),
+        "recent_self_ratio": weights.recent_self_ratio * min(1.0, max(0.0, likelihood_input.recent_self_ratio)),
+        "recent_message_count": weights.recent_message_count * max(0, likelihood_input.recent_message_count),
+        "log_seconds_since_bot": weights.log_seconds_since_bot * log1p(
+            max(0.0, likelihood_input.seconds_since_bot_message)
+        ),
+        "pending_count": weights.pending_count * min(MAX_PENDING_COUNT, max(0, likelihood_input.pending_count)),
+    }
+    logit = sum(contributions.values())
+    if not isfinite(logit):
+        raise ValueError("回复评分总分必须是有限数值")
+    # 可调整权重可能产生很大的负总分，按符号计算 sigmoid，避免指数溢出。
+    probability = (
+        1.0 / (1.0 + exp(-logit))
+        if logit >= 0.0
+        else exp(logit) / (1.0 + exp(logit))
+    )
+    return ReplyLikelihoodScore(probability=probability, logit=logit, contributions=contributions)
+
+
+def estimate_reply_probability(
+    likelihood_input: ReplyLikelihoodInput,
+    *,
+    weights: ReplyLikelihoodWeights = DEFAULT_REPLY_WEIGHTS,
+) -> float:
     """估计这批消息进入 Planner 后会调用 reply 的概率。"""
 
-    logit = (
-        _INTERCEPT
-        + _WEIGHT_MENTION_BOT * float(likelihood_input.mention_bot)
-        + _WEIGHT_AT_OTHER * float(likelihood_input.at_other)
-        + _WEIGHT_QUESTION_MARK * float(likelihood_input.has_question_mark)
-        + _WEIGHT_PLACEHOLDER_ONLY * float(likelihood_input.placeholder_only)
-        + _WEIGHT_RECENT_SELF_RATIO * min(1.0, max(0.0, likelihood_input.recent_self_ratio))
-        + _WEIGHT_RECENT_MESSAGE_COUNT * max(0, likelihood_input.recent_message_count)
-        + _WEIGHT_LOG_SECONDS_SINCE_BOT * log1p(max(0.0, likelihood_input.seconds_since_bot_message))
-        + _WEIGHT_PENDING_COUNT * min(MAX_PENDING_COUNT, max(0, likelihood_input.pending_count))
-    )
-    return 1.0 / (1.0 + exp(-logit))
+    return score_reply_likelihood(likelihood_input, weights=weights).probability

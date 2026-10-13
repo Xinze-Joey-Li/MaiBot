@@ -75,8 +75,6 @@ class MessageTurnScheduler:
         if runtime._idle_backoff.should_delay(pending_count):
             return
 
-        trigger_threshold = runtime._get_message_trigger_threshold()
-        schedule_detail = f"[频率: {formatted_frequency}][{pending_count}/{trigger_threshold} 消息]"
         if is_dynamic_reply_trigger_enabled():
             dynamic_result = self._dynamic_reply_gate.evaluate(
                 pending_messages=runtime.message_cache[runtime._last_processed_index :],
@@ -90,6 +88,9 @@ class MessageTurnScheduler:
                 runtime._enqueue_message_turn()
             return
 
+        # frequency 仅在旧模式被显式选择时计算；dynamic 完全由权重评分和动态额度判定。
+        trigger_threshold = runtime._get_message_trigger_threshold()
+        schedule_detail = f"[频率: {formatted_frequency}][{pending_count}/{trigger_threshold} 消息]"
         logger.info(f"{runtime.log_prefix} 回复频率调度: {schedule_detail}")
         frequency_result = self._frequency_threshold_gate.evaluate(
             pending_count=pending_count,

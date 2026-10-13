@@ -13,6 +13,7 @@ from .reply_likelihood import (
     DEFAULT_SECONDS_SINCE_BOT_MESSAGE,
     ReplyLikelihoodInput,
     estimate_reply_probability,
+    score_reply_likelihood,
     summarize_pending_texts,
 )
 
@@ -91,16 +92,16 @@ class DynamicReplyTurnGate:
                 now,
             )
 
-        probability = estimate_reply_probability(
+        score = score_reply_likelihood(
             self._build_likelihood_input(external_messages, now, pending_messages=external_messages)
         )
-        gate_decision = self._gate.evaluate(probability, frequency, now)
+        gate_decision = self._gate.evaluate(score.probability, frequency, now)
         if gate_decision.should_trigger:
             self._gate.close_round()
         decision_label = "进入Planner" if gate_decision.should_trigger else "等待更多消息"
         return TurnGateResult(
             decision="trigger" if gate_decision.should_trigger else "wait",
-            detail=f"动态门控: {gate_decision.detail} 判定={decision_label}",
+            detail=f"动态门控: {gate_decision.detail} 权重贡献: [{score.detail}] 判定={decision_label}",
         )
 
     def _filter_external_messages(self, pending_messages: Sequence[SessionMessage]) -> List[SessionMessage]:

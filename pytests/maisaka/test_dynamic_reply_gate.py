@@ -188,6 +188,7 @@ def _build_message(message_id: str, text: str, *, is_mentioned: bool = False, is
         processed_plain_text=text,
         is_mentioned=is_mentioned,
         is_at=is_at,
+        timestamp=datetime.now(),
     )
 
 
@@ -221,8 +222,12 @@ def test_turn_gate_counts_each_message_once_and_reads_history() -> None:
     assert len(passing_gate._gate._proactive_scores) == 2
 
     quiet_gate = DynamicReplyTurnGate(_build_runtime(is_group=True, history=[]))
-    with_recent_bot_reply = gate._build_likelihood_input([first_message], now.timestamp())
-    without_bot_reply = quiet_gate._build_likelihood_input([first_message], now.timestamp())
+    with_recent_bot_reply = gate._build_likelihood_input(
+        [first_message], now.timestamp(), pending_messages=[first_message]
+    )
+    without_bot_reply = quiet_gate._build_likelihood_input(
+        [first_message], now.timestamp(), pending_messages=[first_message]
+    )
     assert with_recent_bot_reply.recent_self_ratio > without_bot_reply.recent_self_ratio
     assert with_recent_bot_reply.seconds_since_bot_message < without_bot_reply.seconds_since_bot_message
     assert with_recent_bot_reply.recent_message_count == 3
