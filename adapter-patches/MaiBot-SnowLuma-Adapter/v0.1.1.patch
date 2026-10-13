@@ -1,0 +1,101 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index ff31c87..49ac5c1 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,11 @@
+ # Changelog
+
++## [0.1.1] — 2026-10-13
++
++### 主要功能
++
++- 戳一戳：群聊或私聊被戳时自动回戳发起者，不调用模型或触发普通回复；按发起用户独立回戳，不设置本地限流，忽略自身和非本账号目标。通知总开关和自动回戳开关可停用该功能。
++
+ ## [1.1.5] — 2026-10-11
+
+ ### 主要功能
+diff --git a/README.md b/README.md
+index a673f60..176904b 100644
+--- a/README.md
++++ b/README.md
+@@ -78,3 +78,10 @@ token 鉴权不区分画像：连接时同时附带 `Authorization: Bearer` 头
+ `access_token` 参数（OneBot v11 两种标准方式），两类服务端各取所需。
+
+ ```
++## 戳一戳自动回戳
++
++默认启用 `notice.auto_poke_back`。群聊或私聊中有人戳当前已连接的机器人账号时，适配器直接通过现有 `send_poke` 接口回戳发起者，不请求模型，也不把该通知交给 Planner 生成文字回复。
++
++每次有效事件独立回戳对应用户，不设置本地限流，冷却由 QQ 控制；机器人自身产生的戳一戳回显也会被消费，避免触发后续回复。其他人之间的戳一戳仍沿用现有通知转发设置。平台调用失败会正常暴露错误，不自动重试。
++
++可在通知设置中关闭“自动回戳”，恢复原通知转发行为；关闭通知总开关 `notice.enabled` 也会停用回戳。`notice.enable_poke` 控制向 Host 转发通知，自动回戳由独立开关控制。新开关通过配置模型提供默认值和 WebUI 控件，无需手工改写现有配置文件。
+diff --git a/_manifest.json b/_manifest.json
+index 5097081..433c6bb 100644
+--- a/_manifest.json
++++ b/_manifest.json
+@@ -1,6 +1,6 @@
+ {
+   "manifest_version": 2,
+-  "version": "1.1.5",
++  "version": "0.1.1",
+   "name": "SnowLuma 适配器/ SnowLuma Adapter",
+   "description": "QQ适配器，同时支持 SnowLuma 与 NapCat 客户端",
+   "author": {
+diff --git a/config.py b/config.py
+index 3204d2c..a9c5bf2 100644
+--- a/config.py
++++ b/config.py
+@@ -764,6 +764,13 @@ class QQNoticeConfig(PluginConfigBase):
+         label_en="Route poke",
+         label_ja="poke を転送",
+     )
++    auto_poke_back: bool = _notice_field(
++        label="自动回戳",
++        description="被戳时直接回戳发起者，不调用模型；每次独立回戳发起者，冷却由 QQ 控制。关闭通知总开关时不回戳。",
++        order=13,
++        label_en="Automatically poke back",
++        label_ja="自動で poke を返す",
++    )
+     enable_friend_recall: bool = _notice_field(
+         label="传递好友撤回",
+         description="是否传递好友消息撤回通知。",
+diff --git a/runtime/router.py b/runtime/router.py
+index c318254..eee9515 100644
+--- a/runtime/router.py
++++ b/runtime/router.py
+@@ -166,8 +166,35 @@ class QQEventRouter:
+         self_id = str(payload.get("self_id") or "").strip()
+
+         await runtime.ban_tracker.record_notice(payload)
++        if await self._handle_auto_poke_back(payload, self_id, settings):
++            return
+         await self.route_notice_payload(payload, self_id, settings.client.connection_id)
+
++    async def _handle_auto_poke_back(
++        self, payload: QQPayloadDict, self_id: str, settings: QQPluginSettings
++    ) -> bool:
++        """直接回戳真正戳到本账号的发起者，消费通知而不启动 Planner。"""
++        if not settings.notice.enabled or not settings.notice.auto_poke_back:
++            return False
++        if payload.get("notice_type") != "notify" or payload.get("sub_type") != "poke":
++            return False
++        runtime = self._require_runtime()
++        sender_id = str(payload.get("user_id") or "").strip()
++        target_id = str(payload.get("target_id") or "").strip()
++        if not self_id or self_id != runtime.runtime_state.account_id:
++            return False
++        # 回戳自身产生的通知也由此消费，避免再交给 Planner 形成文字回复或回戳循环。
++        if sender_id == self_id:
++            return True
++        if not sender_id or target_id != self_id:
++            return False
++        group_id = str(payload.get("group_id") or "").strip()
++        await runtime.query_service.send_poke(
++            user_id=int(sender_id), group_id=int(group_id) if group_id else None
++        )
++        self._logger.info("戳一戳自动回戳成功")
++        return True
++
+     async def route_notice_payload(
+         self,
+         payload: QQPayloadDict,
