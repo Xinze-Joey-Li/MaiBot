@@ -782,6 +782,9 @@ def _record_sent_emoji_usage(message: SessionMessage) -> None:
 
         for emoji_hash in emoji_hashes:
             emoji_manager.update_emoji_usage_by_hash(emoji_hash, log_missing=False)
+            from src.emoji_system.local_selection import record_sent
+
+            record_sent(message.session_id, emoji_hash)
     except Exception as exc:
         logger.warning(f"[SendService] 记录表情包使用次数失败: {exc}")
 
@@ -921,44 +924,52 @@ async def _send_via_platform_io(
         logger.error(f"[SendService] Platform IO 发送异常: {exc}", exc_info=True)
         return None
 
-    sent = bool(delivery_batch.has_success)
-    if sent:
-        await _apply_successful_delivery_receipt(message, delivery_batch)
-        await _dispatch_adapter_callbacks(delivery_batch)
-    await _invoke_send_hook(
-        "send_service.after_send",
-        message,
-        sent=sent,
-        typing=typing,
-        set_reply=set_reply,
-        reply_message_id=reply_message_id,
-        storage_message=storage_message,
-        show_log=show_log,
-    )
-
-    if delivery_batch.has_success:
-        from src.services.group_silence_emoji_service import group_silence_emoji_service
-
-        group_silence_emoji_service.record_activity(message)
-        await asyncio.to_thread(_record_sent_emoji_usage, message)
-        if storage_message:
-            await _store_sent_message(message)
-        await _notify_memory_automation_on_message_sent(message)
-        should_log_delivery = show_log and any(
-            receipt.driver_kind != DriverKind.LOCAL
-            for receipt in delivery_batch.sent_receipts
+    # 平台已确认送达后，历史/数据库/Hook 失败不能被报告成未发送，否则 @ 会再发文字。
+    try:
+        sent = bool(delivery_batch.has_success)
+        if sent:
+            await _apply_successful_delivery_receipt(message, delivery_batch)
+            await _dispatch_adapter_callbacks(delivery_batch)
+        await _invoke_send_hook(
+            "send_service.after_send",
+            message,
+            sent=sent,
+            typing=typing,
+            set_reply=set_reply,
+            reply_message_id=reply_message_id,
+            storage_message=storage_message,
+            show_log=show_log,
         )
-        if should_log_delivery:
-            successful_driver_ids = [receipt.driver_id or "unknown" for receipt in delivery_batch.sent_receipts]
-            logger.info(
-                f"已通过 Platform IO 将消息发往平台 '{route_key.platform}' "
-                f"(drivers: {', '.join(successful_driver_ids)}) "
-                f"message={_build_outbound_log_preview(message)}"
-            )
-        return message
 
-    _log_platform_io_failures(delivery_batch)
-    return None
+        if delivery_batch.has_success:
+            from src.services.group_silence_emoji_service import group_silence_emoji_service
+
+            group_silence_emoji_service.record_activity(message)
+            await asyncio.to_thread(_record_sent_emoji_usage, message)
+            if storage_message:
+                await _store_sent_message(message)
+            await _notify_memory_automation_on_message_sent(message)
+            should_log_delivery = show_log and any(
+                receipt.driver_kind != DriverKind.LOCAL
+                for receipt in delivery_batch.sent_receipts
+            )
+            if should_log_delivery:
+                successful_driver_ids = [receipt.driver_id or "unknown" for receipt in delivery_batch.sent_receipts]
+                logger.info(
+                    f"已通过 Platform IO 将消息发往平台 '{route_key.platform}' "
+                    f"(drivers: {', '.join(successful_driver_ids)}) "
+                    f"message={_build_outbound_log_preview(message)}"
+                )
+            return message
+
+        _log_platform_io_failures(delivery_batch)
+        return None
+    except Exception:
+        if delivery_batch.has_success:
+            logger.exception("[SendService] 消息已送达，但发送后处理失败；保留成功回执，避免重复回复")
+            return message
+        raise
+
 
 
 async def send_session_message_with_message(
@@ -978,6 +989,9 @@ async def send_session_message_with_message(
         logger.error("[SendService] 消息缺少 message_id，无法发送")
         raise ValueError("消息缺少 message_id，无法发送")
 
+    if maisaka_source_kind == "reply_emoji_attachment":
+        # 连同消息保存来源标记，重启恢复历史后也不能把附件当作一次文字回复。
+        message.message_info.additional_config["reply_emoji_attachment"] = True
     sent_message = await _send_via_platform_io(
         message,
         typing=typing,

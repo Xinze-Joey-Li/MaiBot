@@ -16,7 +16,7 @@ from src.services.tag_memory_store import TagCandidate, TagMemoryStore
 
 def create_test_app(directory: Path):
     config = SimpleNamespace(chat=SimpleNamespace(tag_memory=SimpleNamespace(
-        enabled=True, data_dir=str(directory), batch_size=25, max_wait_seconds=1800,
+        enabled=True, data_dir=str(directory), batch_size=25, max_wait_seconds=1800, batch_rules=[],
         retention_days=14, cleanup_interval_days=14)))
     sessions = {"group": SimpleNamespace(session_id="group", group_id="123"),
                 "other": SimpleNamespace(session_id="other", group_id="456"),
@@ -101,6 +101,21 @@ class TagMemoryRoutesTest(TestCase):
         self.config.chat.tag_memory.enabled = False
         self.assertEqual(self.client.get("/api/webui/tag-memory/group", headers=self.headers).status_code, 409)
 
+    def test_retry_is_authenticated_scoped_and_refuses_running_jobs(self):
+        self.store.initialize_scanner(0)
+        self.store.enqueue_page([{"session_id": "group", "message_id": "queued", "timestamp": 0}], 1)
+        job = self.store.next_extraction_job(claim=True)
+        path = f"/api/webui/tag-memory/group/extraction/{job['id']}/retry"
+        self.assertEqual(self.client.post(path).status_code, 401)
+        self.assertEqual(self.client.post(path, headers=self.headers).status_code, 409)
+        self.store.fail_extraction_job(job["id"], "model failed", invalid_output=True)
+        foreign = f"/api/webui/tag-memory/other/extraction/{job['id']}/retry"
+        self.assertEqual(self.client.post(foreign, headers=self.headers).status_code, 400)
+        self.assertEqual(self.client.post(path, headers=self.headers).status_code, 200)
+        status = self.client.get("/api/webui/tag-memory/group", headers=self.headers).json()["extraction"]
+        self.assertEqual(status["pending_messages"], 1)
+        self.assertEqual(status["job"]["retry_at"], 0)
+
     def test_delete_and_batch_context(self):
         batch = self.client.get(f"/api/webui/tag-memory/group/batches/{self.tag['batch_id']}", headers=self.headers)
         self.assertEqual(batch.status_code, 200)
@@ -125,3 +140,19 @@ class TagMemoryRoutesTest(TestCase):
             db.execute("INSERT INTO topic_tags VALUES(?,?,?)", ("group", "topic", self.tag["id"]))
         self.assertEqual(self.client.patch("/api/webui/tag-memory/group/topics/topic", json={"active": True}, headers=self.headers).status_code, 200)
         self.assertEqual(self.store.get_topics("group")[0]["is_active"], 1)
+
+    def test_quarantined_job_recovery_is_authenticated_and_scoped(self):
+        self.store.initialize_scanner(0)
+        self.store.enqueue_page([{"session_id": "group", "message_id": "pending", "timestamp": 0,
+                                  "text": "test", "user_id": "user"}], 1)
+        job = self.store.next_extraction_job(1, 1)
+        for _ in range(5):
+            self.store.fail_extraction_job(job["id"], "invalid", invalid_output=True)
+        path = f"/api/webui/tag-memory/group/extraction-jobs/{job['id']}/retry"
+        self.assertEqual(self.client.post(path).status_code, 401)
+        wrong = path.replace("/group/", "/other/")
+        self.assertEqual(self.client.post(wrong, headers=self.headers).status_code, 400)
+        jobs = self.client.get("/api/webui/tag-memory/group/extraction-jobs", headers=self.headers).json()["jobs"]
+        self.assertEqual(jobs[0]["status"], "failed")
+        self.assertEqual(self.client.post(path, headers=self.headers).status_code, 200)
+        self.assertEqual(self.store.list_extraction_jobs("group")[0]["attempts"], 0)

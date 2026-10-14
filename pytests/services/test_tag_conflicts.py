@@ -77,7 +77,7 @@ class ConflictStoreTest(TestCase):
 
 class ConflictModelTest(IsolatedAsyncioTestCase):
     async def test_separate_memory_call_checks_same_category_even_with_different_names(self):
-        client = SimpleNamespace(generate_response=AsyncMock(return_value=SimpleNamespace(response=json.dumps(
+        client = SimpleNamespace(generate_response=AsyncMock(return_value=SimpleNamespace(prompt_tokens=0, completion_tokens=0, total_tokens=0, response=json.dumps(
             {"decisions": [{"old_tag_id": "old", "decision": "replace_old", "reason": "明确改期"}]}))))
         factory = Mock(return_value=client)
         modules = {"src.services.llm_service": SimpleNamespace(LLMServiceClient=factory),
@@ -91,9 +91,37 @@ class ConflictModelTest(IsolatedAsyncioTestCase):
         self.assertEqual(factory.call_args.kwargs["task_name"], "memory")
         self.assertEqual(decisions[0]["new_index"], 0)
         self.assertNotIn("private", client.generate_response.call_args.args[0])
+        prompt = client.generate_response.call_args.args[0]
+        parsed_prompt = json.loads(prompt)
+        self.assertEqual(list(parsed_prompt), ["old_tags", "new_tag"])
+        self.assertEqual(parsed_prompt["new_tag"]["summary"], "周日看电影")
+        self.assertEqual(prompt, json.dumps(parsed_prompt, ensure_ascii=False, separators=(",", ":")))
 
     async def test_no_history_needs_no_extra_model_request(self):
         self.assertEqual(await decide_tag_conflicts("group", [], []), [])
+
+    async def test_completed_chunks_are_reused_after_partial_failure(self):
+        cache = {}
+        client = SimpleNamespace(generate_response=AsyncMock(side_effect=[
+            SimpleNamespace(prompt_tokens=0, completion_tokens=0, total_tokens=0, response='{"decisions":[]}'), RuntimeError("rate limited"),
+            SimpleNamespace(prompt_tokens=0, completion_tokens=0, total_tokens=0, response='{"decisions":[]}')]))
+        modules = {"src.services.llm_service": SimpleNamespace(LLMServiceClient=Mock(return_value=client)),
+                   "src.common.prompt_i18n": SimpleNamespace(load_prompt=lambda name: "{input_json}")}
+        tags = [{"id": f"old{i}", "revision": 0, "category_path": ["群公共", "群活动"]} for i in range(21)]
+        new = [TagCandidate("新计划", "爬山", ("群公共", "群活动"))]
+
+        async def read(key):
+            return cache.get(key)
+
+        async def write(key, output):
+            cache[key] = output
+
+        with patch.dict("sys.modules", modules):
+            with self.assertRaises(RuntimeError):
+                await decide_tag_conflicts("group", new, tags, read_cache=read, write_cache=write)
+            self.assertEqual(len(cache), 1)
+            self.assertEqual(await decide_tag_conflicts("group", new, tags, read_cache=read, write_cache=write), [])
+        self.assertEqual(client.generate_response.await_count, 3)
 
     async def test_invalid_ids_actions_and_missing_reasons_are_rejected(self):
         for item in [{"old_tag_id": "foreign", "decision": "replace_old", "reason": "x"},
@@ -121,5 +149,6 @@ class ConflictModelTest(IsolatedAsyncioTestCase):
             reference = await build_tag_memory_reference("real-group")
         self.assertEqual(store.search_tags.call_args.args[0], "real-group")
         self.assertIn("alice", store.search_tags.call_args.args[2])
-        self.assertIn('"message_id": "m"', reference)
+        recalled = json.loads(reference.removeprefix("reference:"))
+        self.assertEqual(recalled[0]["evidence"][0]["message_id"], "m")
         self.assertIn("周末爬山", reference)

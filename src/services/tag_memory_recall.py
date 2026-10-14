@@ -5,10 +5,28 @@ from typing import List, Optional
 import asyncio
 import json
 
+from src.common.logger import get_logger
+
 from .tag_memory_service import tag_memory_service
+
+logger = get_logger("tag_memory_recall")
+RECALL_TIMEOUT_SECONDS = 2.0
 
 
 async def build_tag_memory_reference(session_id: str, text: str = "", user_ids: Optional[List[str]] = None) -> str:
+    """仅隔离可选召回，取消信号和主回复错误由调用方处理。"""
+    try:
+        return await asyncio.wait_for(
+            _build_tag_memory_reference(session_id, text, user_ids), timeout=RECALL_TIMEOUT_SECONDS
+        )
+    except TimeoutError:
+        logger.warning(f"标签召回超时，继续无标签回复: session_id={session_id} timeout={RECALL_TIMEOUT_SECONDS}s")
+    except Exception:
+        logger.exception(f"标签召回失败，继续无标签回复: session_id={session_id}")
+    return ""
+
+
+async def _build_tag_memory_reference(session_id: str, text: str, user_ids: Optional[List[str]]) -> str:
     from src.common.message_repository import find_messages
     from src.common.prompt_i18n import load_prompt
     from src.config.config import global_config
@@ -35,4 +53,4 @@ async def build_tag_memory_reference(session_id: str, text: str = "", user_ids: 
                  {"message_id": source["message_id"], "quote": source["quote"][:240]}
                  for source in item["evidence"][:3]]} for item in hits]
     template = await asyncio.to_thread(load_prompt, "tag_memory_reference")
-    return template.replace("{memory_json}", json.dumps(data, ensure_ascii=False))
+    return template.replace("{memory_json}", json.dumps(data, ensure_ascii=False, separators=(",", ":")))

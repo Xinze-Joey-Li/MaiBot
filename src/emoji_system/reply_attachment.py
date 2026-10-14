@@ -43,7 +43,7 @@ def extract_tag(text: str, candidates: Dict[str, List[MaiEmoji]]) -> Tuple[str, 
     return EMOJI_TAG_PATTERN.sub("", text).strip(), selected_tag
 
 
-async def send_after_text(stream_id: str, tag: str) -> None:
+async def send_after_text(stream_id: str, tag: str, context_text: str = "") -> None:
     """每条成功文字独立抽概率，再抽是否命中；没有匹配表情则跳过。"""
     probability = random.uniform(0.30, 0.50)
     if random.random() >= probability or not tag:
@@ -51,11 +51,14 @@ async def send_after_text(stream_id: str, tag: str) -> None:
     candidates = get_tag_candidates().get(tag, [])
     if not candidates:
         return
-    emoji = random.choice(candidates)
     from src.services import send_service
+    from .local_selection import select_candidate
 
     # 仅在确定发送时读取文件，不识图、不调用表情选择模型。失败单独记录，文字已成功。
     try:
+        emoji = await asyncio.to_thread(select_candidate, stream_id, tag, candidates, context_text)
+        if emoji is None:
+            return
         data = await asyncio.to_thread(resolve_stored_image_path(emoji.full_path).read_bytes)
         await send_service._send_to_target_with_message(
             message_sequence=MessageSequence([
@@ -64,7 +67,7 @@ async def send_after_text(stream_id: str, tag: str) -> None:
             stream_id=stream_id,
             set_reply=False,
             sync_to_maisaka_history=True,
-            maisaka_source_kind="guided_reply",
+            maisaka_source_kind="reply_emoji_attachment",
         )
     except Exception:
         logger.exception(f"文字后的表情发送异常: session_id={stream_id} tag={tag!r}")

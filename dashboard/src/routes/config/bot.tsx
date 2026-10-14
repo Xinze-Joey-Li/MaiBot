@@ -1397,10 +1397,21 @@ function DynamicConfigTabs(props: DynamicConfigTabsProps) {
   }
 
   const renderTabContent = (tab: TabGroup) => {
+    const ownerFields = new Set(['owner_qq', 'owner_group_commands_enabled'])
+    const ownerSchema = configSchema.nested?.bot
+    const ownerEditorSchema: ConfigSchema | null = ownerSchema ? {
+      ...ownerSchema,
+      fields: ownerSchema.fields.filter((field) => ownerFields.has(field.name)),
+      nested: undefined,
+    } : null
     const tabNestedEntries = tab.sections
       .map((sectionName) => {
         const schema = configSchema.nested?.[sectionName]
-        return [sectionName, schema ? getDisplaySectionSchema(sectionName, schema) : undefined] as const
+        const displayedSchema = schema ? getDisplaySectionSchema(sectionName, schema) : undefined
+        return [sectionName, displayedSchema && sectionName === 'bot' ? {
+          ...displayedSchema,
+          fields: displayedSchema.fields.filter((field) => !ownerFields.has(field.name)),
+        } : displayedSchema] as const
       })
       .filter((entry): entry is readonly [string, ConfigSchema] => Boolean(entry[1]))
 
@@ -1425,6 +1436,26 @@ function DynamicConfigTabs(props: DynamicConfigTabsProps) {
 
     return (
       <>
+        {tab.id === 'bot' && ownerEditorSchema && ownerEditorSchema.fields.length > 0 && (
+          <Card>
+            <CardHeader className="border-b border-border/50 pb-3">
+              <CardTitle className="text-base text-primary">主人身份与权限</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 pt-3">
+              <p className="text-sm text-muted-foreground">
+                在这里修改主人 QQ 号。群聊权限按真实发送账号判定，昵称和消息中的自称不会获得权限。
+                保存后新账号获得主人权限，旧账号失去权限。Dashboard 仍需登录后才能编辑。
+              </p>
+              <DynamicConfigForm
+                schema={ownerEditorSchema}
+                values={sectionValues.bot ?? {}}
+                onChange={(field, value) => updateSectionValueByPath('bot', [field], value)}
+                basePath="bot"
+                hooks={fieldHooks}
+              />
+            </CardContent>
+          </Card>
+        )}
         <DynamicConfigForm
           schema={tabSchema}
           values={values}

@@ -156,6 +156,8 @@ class CycleRuntimeState:
     cycle_end: CycleEnd = field(default_factory=lambda: CycleEnd("continue", "本轮思考完成，继续后续内部轮次。"))
     tool_result_summaries: list[str] = field(default_factory=list)
     tool_monitor_results: list[dict[str, Any]] = field(default_factory=list)
+    tool_execution_results: list[ToolExecutionResult] = field(default_factory=list)
+    round_number: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -276,7 +278,7 @@ class MaisakaReasoningEngine:
     ) -> list[LLMContextMessage]:
         """场景概括只看真实聊天消息，不混入参考、assistant 或工具历史。"""
 
-        allowed_source_kinds = {"user", "guided_reply", "outbound_send", "auto_repeat", "priority_at_reply", "silence_emoji"}
+        allowed_source_kinds = {"user", "guided_reply", "outbound_send", "auto_repeat", "priority_at_reply", "silence_emoji", "reply_emoji_attachment"}
         return [
             message
             for message in context_messages
@@ -398,7 +400,7 @@ class MaisakaReasoningEngine:
                 if not isinstance(history_message, SessionBackedMessage):
                     continue
                 if history_message.source_kind not in {
-                    "user", "guided_reply", "outbound_send", "auto_repeat", "priority_at_reply", "silence_emoji"
+                    "user", "guided_reply", "outbound_send", "auto_repeat", "priority_at_reply", "silence_emoji", "reply_emoji_attachment"
                 }:
                     continue
                 self._append_behavior_selector_context_item(
@@ -421,7 +423,7 @@ class MaisakaReasoningEngine:
                 if not isinstance(history_message, SessionBackedMessage):
                     continue
                 if history_message.source_kind not in {
-                    "user", "guided_reply", "outbound_send", "auto_repeat", "priority_at_reply", "silence_emoji"
+                    "user", "guided_reply", "outbound_send", "auto_repeat", "priority_at_reply", "silence_emoji", "reply_emoji_attachment"
                 }:
                     continue
                 self._append_behavior_selector_context_item(
@@ -758,6 +760,22 @@ class MaisakaReasoningEngine:
                 state.cycle_end = self._cycle_end_for_pause_tool(pause_tool_name)
                 return planner_no_tool_count, True
             state.cycle_end = CycleEnd("tool_continue", "Planner 工具执行完成，继续下一轮内部思考。")
+            from src.maisaka.planner_lifecycle import lifecycle_mode, local_end_reason
+
+            mode = lifecycle_mode()
+            reason = local_end_reason(state.tool_execution_results)
+            if mode != "legacy":
+                logger.info(
+                    f"Planner本地判定: session={self._runtime.session_id} turn={self._active_logical_turn_id} "
+                    f"cycle={cycle_detail.cycle_id} round={state.round_number} mode={mode} end={bool(reason)} "
+                    f"reason={reason or 'unknown_or_required_continuation'} "
+                    f"tools={[(r.tool_name, r.success) for r in state.tool_execution_results]} "
+                    f"pending={self._runtime._has_pending_messages()} "
+                    f"input_tokens={response.prompt_tokens} output_tokens={response.completion_tokens}"
+                )
+            if mode == "optimized" and reason:
+                state.cycle_end = CycleEnd("local_actions_completed", "必要动作已完成，本地结束 Planner 回合。")
+                return planner_no_tool_count, True
             return planner_no_tool_count, False
 
         planner_no_tool_count, cycle_end, should_end_after_no_tool = self._handle_planner_no_tool_retry(
@@ -958,6 +976,10 @@ class MaisakaReasoningEngine:
     async def _collect_pending_messages_before_next_round(self, round_index: int) -> list[SessionMessage]:
         """在后续内部轮次开始前合并新消息。"""
 
+        from src.maisaka.planner_lifecycle import lifecycle_mode
+
+        if lifecycle_mode() == "optimized":
+            return []
         if round_index <= 0 or not self._runtime._has_pending_messages():
             return []
 
@@ -970,6 +992,14 @@ class MaisakaReasoningEngine:
                 f"消息数={len(pending_round_messages)} 回合={round_index + 1}"
             )
         return pending_round_messages
+
+    def _regate_pending_after_turn(self) -> None:
+        """仅重新评估尚未消费的消息；拒绝时不自旋、不推进消息游标。"""
+        from src.maisaka.planner_lifecycle import lifecycle_mode
+
+        if lifecycle_mode() == "optimized" and self._runtime._has_pending_messages():
+            logger.info(f"Planner重新门控: session={self._runtime.session_id} pending=True")
+            self._runtime._schedule_message_turn()
 
     async def _start_cycle_round(self, round_index: int) -> tuple[CycleDetail, str]:
         """启动一轮内部循环。"""
@@ -1167,7 +1197,7 @@ class MaisakaReasoningEngine:
                             trigger_message = pending_round_messages[-1]
 
                         cycle_detail, round_text = await self._start_cycle_round(round_index)
-                        state = CycleRuntimeState()
+                        state = CycleRuntimeState(round_number=round_index + 1)
                         try:
                             await self._refresh_visual_placeholders_for_cycle(cycle_detail)
                             if not mid_term_reference_refreshed:
@@ -1232,10 +1262,15 @@ class MaisakaReasoningEngine:
                 finally:
                     self._clear_planner_no_tool_hints()
                     self._active_logical_turn_id = None
+                    from src.maisaka.planner_lifecycle import lifecycle_mode
+
+                    if lifecycle_mode() == "optimized":
+                        self._runtime._end_planner_continuation()
                     if self._runtime._agent_state == self._runtime._STATE_RUNNING:
                         self._runtime._enter_stop_state()
                     if self._runtime._running:
                         self._runtime._update_stage_status("等待消息", "本轮处理结束")
+                        self._regate_pending_after_turn()
         except asyncio.CancelledError:
             self._runtime._log_internal_loop_cancelled()
             raise
@@ -1355,7 +1390,7 @@ class MaisakaReasoningEngine:
         planner_prefix = build_planner_user_prefix_from_session_message(
             message,
             include_chat_id=include_chat_id,
-            is_self_message=source_kind in {"guided_reply", "auto_repeat", "priority_at_reply", "silence_emoji"},
+            is_self_message=source_kind in {"guided_reply", "auto_repeat", "priority_at_reply", "silence_emoji", "reply_emoji_attachment"},
         )
         if contains_complex_message(source_sequence):
             return ComplexSessionMessage.from_session_message(
@@ -2255,6 +2290,7 @@ class MaisakaReasoningEngine:
             if is_unexpanded_tool and not result.success:
                 result = self._append_deferred_tool_parameter_hint(result)
             tool_duration_ms = (time.time() - tool_started_at) * 1000
+            state.tool_execution_results.append(result)
             await self._record_tool_execution_effects(
                 invocation,
                 result,

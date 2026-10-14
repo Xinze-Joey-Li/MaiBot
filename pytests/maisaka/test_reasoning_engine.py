@@ -29,7 +29,7 @@ from src.maisaka.monitor.events import (
     _serialize_request_block,
     _serialize_tool_results,
 )
-from src.maisaka.reasoning_engine import STOP_AFTER_EXECUTION_PAUSE_REASON, MaisakaReasoningEngine
+from src.maisaka.reasoning_engine import STOP_AFTER_EXECUTION_PAUSE_REASON, CycleRuntimeState, MaisakaReasoningEngine
 
 
 class _ToolRegistryStub:
@@ -62,6 +62,7 @@ def _build_tool_engine(results: list[ToolExecutionResult]) -> tuple[MaisakaReaso
             platform="test",
         ),
         is_action_tool_currently_available=lambda tool_name: True,
+        expand_message_id_aliases=lambda arguments: arguments,
         _update_stage_status=lambda *args, **kwargs: None,
         _reset_consecutive_wait_count=Mock(),
         _end_planner_continuation=Mock(),
@@ -70,6 +71,7 @@ def _build_tool_engine(results: list[ToolExecutionResult]) -> tuple[MaisakaReaso
     )
     engine = MaisakaReasoningEngine(runtime)
     engine._record_tool_execution_effects = AsyncMock()  # type: ignore[method-assign]
+    engine._emit_planner_progress = AsyncMock()  # type: ignore[method-assign]
     engine._append_tool_execution_result = lambda *args, **kwargs: None  # type: ignore[method-assign]
     engine._append_tool_post_history_messages = lambda messages: None  # type: ignore[method-assign]
     return engine, runtime
@@ -102,6 +104,8 @@ async def test_successful_stop_request_finishes_after_full_tool_batch() -> None:
             ToolCall(call_id="call-3", func_name="following_tool"),
         ],
         "测试思考",
+        SimpleNamespace(cycle_id=1),
+        CycleRuntimeState(),
     )
 
     assert should_pause is True
@@ -141,6 +145,8 @@ async def test_failed_stop_request_keeps_planner_running() -> None:
             ToolCall(call_id="call-2", func_name="following_tool"),
         ],
         "测试思考",
+        SimpleNamespace(cycle_id=1),
+        CycleRuntimeState(),
     )
 
     assert should_pause is False

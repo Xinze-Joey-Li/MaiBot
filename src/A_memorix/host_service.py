@@ -257,11 +257,14 @@ class AMemorixHostService:
             from .core.runtime.sdk_memory_kernel import KernelSearchRequest
 
             chat_id = str(payload.get("chat_id", "") or "").strip()
+            if not chat_id and (payload.get("group_id") or payload.get("user_id")):
+                return {"success": False, "error": "业务记忆查询缺少真实会话 ID", "hits": []}
             config = self._read_config()
             global_memory_sharing_enabled = bool(config.get("global_memory_sharing_enabled", False))
-            search_chat_id = "" if global_memory_sharing_enabled else chat_id
+            # 有会话的业务查询始终限制在当前流及显式共享组；全局开关只作用于无会话的管理查询。
+            search_chat_id = chat_id
             shared_chat_ids = ()
-            if not global_memory_sharing_enabled:
+            if chat_id or not global_memory_sharing_enabled:
                 shared_chat_ids = tuple(AMemorixConfigUtils.get_shared_memory_session_ids(chat_id))
 
             return await kernel.search_memory(
@@ -294,6 +297,8 @@ class AMemorixHostService:
             return await self._dispatch_ingest_write(kernel, component_name, payload)
 
         if component_name == "get_person_profile":
+            if payload.get("chat_id"):
+                return {"success": False, "error": "全局画像不支持会话隔离，请使用宿主的会话标签画像接口"}
             return await kernel.get_person_profile(
                 person_id=str(payload.get("person_id", "") or ""),
                 chat_id=str(payload.get("chat_id", "") or ""),
@@ -315,10 +320,10 @@ class AMemorixHostService:
         if component_name == "image_memory":
             action = str(payload.get("action") or "").strip().lower()
             scoped_payload = dict(payload)
-            if action in {"search", "get"} and "chat_ids" not in scoped_payload:
+            if action in {"search", "get"} and (payload.get("chat_id") or "chat_ids" not in scoped_payload):
                 chat_id = str(payload.get("chat_id") or "").strip()
                 config = self._read_config()
-                if bool(config.get("global_memory_sharing_enabled", False)):
+                if not chat_id and bool(config.get("global_memory_sharing_enabled", False)):
                     scoped_payload["chat_ids"] = None
                 else:
                     scoped_payload["chat_ids"] = [
@@ -330,6 +335,8 @@ class AMemorixHostService:
             return await kernel.image_memory(action=action, **scoped_payload)
 
         if is_admin_component(component_name):
+            if component_name == "memory_profile_admin" and payload.get("chat_id"):
+                return {"success": False, "error": "禁止在会话中访问全局人物画像管理接口"}
             try:
                 command = parse_admin_command(component_name, payload)
             except AdminContractError as exc:

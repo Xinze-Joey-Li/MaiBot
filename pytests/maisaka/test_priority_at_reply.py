@@ -29,7 +29,7 @@ class PriorityAtReplyTest(IsolatedAsyncioTestCase):
     def message(self, message_id="1", session_id="group", user="user"):
         return SimpleNamespace(
             session_id=session_id, message_id=message_id, platform="qq", is_at=False, is_mentioned=False,
-            is_notify=False, is_command=False,
+            is_notify=False, is_command=False, processed_plain_text="测试消息",
             raw_message=MessageSequence([AtComponent("bot")]),
             message_info=SimpleNamespace(additional_config={}, user_info=SimpleNamespace(user_id=user)),
         )
@@ -215,6 +215,23 @@ class PriorityAtReplyTest(IsolatedAsyncioTestCase):
                 await self.service._send_emoji(self.message())
         modules["src.services.send_service"].send_priority_at_reply.assert_not_awaited()
 
+    async def test_all_five_fixed_candidates_can_be_selected(self) -> None:
+        hashes = [f"fixed-{index}" for index in range(5)]
+        self.config.chat.priority_at_reply_emoji_hashes = hashes + [" fixed-0 "]
+        emojis = [SimpleNamespace(file_hash=value, full_path=value) for value in hashes]
+        lookup = Mock(side_effect=dict(zip(hashes, emojis, strict=True)).get)
+        modules = self.emoji_modules(lookup)
+        target = self.message()
+        for selected in emojis:
+            with self.subTest(selected=selected.file_hash), patch.dict("sys.modules", modules), patch(
+                "src.services.priority_at_reply_service.random.choice", return_value=selected
+            ) as choose:
+                await self.service._send_emoji(target)
+                choose.assert_called_once_with(emojis)
+                modules["src.services.send_service"].send_priority_at_reply.assert_awaited_with(
+                    [{"binary_hash": selected.file_hash, "binary_data": b"emoji"}], target, set_reply=False
+                )
+
     async def test_model_uses_existing_replyer_and_target(self) -> None:
         result = SimpleNamespace(completion=SimpleNamespace(response_text="回复内容"), error_message="", selected_emoji_tag="")
         generator = Mock()
@@ -223,6 +240,7 @@ class PriorityAtReplyTest(IsolatedAsyncioTestCase):
         sender = AsyncMock(return_value=True)
         modules = {
             "src.chat.replyer.maisaka_generator": SimpleNamespace(MaisakaReplyGenerator=factory),
+            "src.emoji_system.reply_attachment": SimpleNamespace(send_after_text=AsyncMock()),
             "src.common.data_models.message_component_data_model": SimpleNamespace(
                 MessageSequence=list, TextComponent=lambda text: text
             ),
@@ -241,6 +259,7 @@ class PriorityAtReplyTest(IsolatedAsyncioTestCase):
         sender = AsyncMock()
         modules = {
             "src.chat.replyer.maisaka_generator": SimpleNamespace(MaisakaReplyGenerator=lambda **kwargs: generator),
+            "src.emoji_system.reply_attachment": SimpleNamespace(send_after_text=AsyncMock()),
             "src.common.data_models.message_component_data_model": SimpleNamespace(
                 MessageSequence=list, TextComponent=str
             ),
@@ -250,3 +269,60 @@ class PriorityAtReplyTest(IsolatedAsyncioTestCase):
             with self.assertRaisesRegex(RuntimeError, "生成失败"):
                 await self.service._send_text(self.message(), self.runtime, [])
         sender.assert_not_awaited()
+
+    async def test_emoji_errors_fall_back_once_to_text(self) -> None:
+        for error in (RuntimeError("未配置"), RuntimeError("不可用"), OSError("读取失败"), RuntimeError("发送失败")):
+            with self.subTest(error=str(error)), patch.dict("sys.modules", self.modules), patch(
+                "src.services.priority_at_reply_service.random.random", return_value=0.1
+            ), patch.object(self.service, "_send_emoji", AsyncMock(side_effect=error)) as emoji, patch.object(
+                self.service, "_send_text", AsyncMock()
+            ) as text:
+                await self.service._reply(self.message(), self.runtime, [])
+                emoji.assert_awaited_once()
+                text.assert_awaited_once()
+
+    async def test_missing_fixed_configuration_uses_text_instead(self) -> None:
+        modules = {**self.modules, **self.emoji_modules(Mock())}
+        target = self.message()
+        with patch.dict("sys.modules", modules), patch(
+            "src.services.priority_at_reply_service.random.random", return_value=0.1
+        ), patch.object(self.service, "_is_standalone_bot_at", return_value=True), patch.object(
+            self.service, "_send_text", AsyncMock()
+        ) as text:
+            await self.service._reply(target, self.runtime, [])
+        text.assert_awaited_once()
+        modules["src.services.send_service"].send_priority_at_reply.assert_not_awaited()
+
+    async def test_successful_emoji_never_also_sends_text(self) -> None:
+        with patch.dict("sys.modules", self.modules), patch(
+            "src.services.priority_at_reply_service.random.random", return_value=0.1
+        ), patch.object(self.service, "_send_emoji", AsyncMock()), patch.object(self.service, "_send_text", AsyncMock()) as text:
+            await self.service._reply(self.message(), self.runtime, [])
+        text.assert_not_awaited()
+
+    async def test_text_fallback_error_is_not_swallowed(self) -> None:
+        with patch.dict("sys.modules", self.modules), patch(
+            "src.services.priority_at_reply_service.random.random", return_value=0.1
+        ), patch.object(self.service, "_send_emoji", AsyncMock(side_effect=OSError("image"))), patch.object(
+            self.service, "_send_text", AsyncMock(side_effect=RuntimeError("real text error"))
+        ):
+            with self.assertRaisesRegex(RuntimeError, "real text error"):
+                await self.service._reply(self.message(), self.runtime, [])
+
+    async def test_real_file_read_and_delivery_failures_trigger_one_text_reply(self) -> None:
+        self.config.chat.priority_at_reply_emoji_hashes = ["fixed"]
+        for fail_read in (True, False):
+            with self.subTest(fail_read=fail_read):
+                lookup = Mock(return_value=SimpleNamespace(file_hash="fixed", full_path="fixed.gif"))
+                modules = {**self.modules, **self.emoji_modules(lookup)}
+                if fail_read:
+                    modules["src.common.utils.image_path"].resolve_stored_image_path = Mock(side_effect=OSError("read"))
+                else:
+                    modules["src.services.send_service"].send_priority_at_reply.return_value = False
+                with patch.dict("sys.modules", modules), patch.object(
+                    self.service, "_is_standalone_bot_at", return_value=True
+                ), patch("src.services.priority_at_reply_service.random.random", return_value=0.1), patch.object(
+                    self.service, "_send_text", AsyncMock()
+                ) as text:
+                    await self.service._reply(self.message(), self.runtime, [])
+                text.assert_awaited_once()

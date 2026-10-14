@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from time import time
 from typing import Any, Sequence
 
+import asyncio
+
 from src.chat.message_receive.chat_manager import BotChatSession, chat_manager
 from src.chat.message_receive.message import SessionMessage
 from src.common.data_models.message_component_data_model import AtComponent, ReplyComponent
@@ -73,13 +75,13 @@ class HeuristicMemoryInjector:
             self.clear_session_reference(session_id)
             return ""
 
-        session = chat_manager.get_existing_session_by_session_id(session_id)
+        session = await asyncio.to_thread(chat_manager.get_existing_session_by_session_id, session_id)
         if session is None:
             logger.debug(f"启发式记忆跳过：无法解析真实聊天流 session_id={session_id!r}")
             return ""
 
         window_size = max(1, int(getattr(config, "heuristic_memory_recall_window_size", 20) or 20))
-        total_message_count = count_messages(session_id=session.session_id)
+        total_message_count = await asyncio.to_thread(count_messages, session_id=session.session_id)
         if total_message_count < window_size:
             self.clear_session_reference(session.session_id)
             return ""
@@ -106,7 +108,7 @@ class HeuristicMemoryInjector:
             self.clear_session_reference(session.session_id)
             return ""
 
-        recent_messages = find_messages(
+        recent_messages = await asyncio.to_thread(find_messages,
             session_id=session.session_id,
             limit=window_size,
             limit_mode="latest",
@@ -119,7 +121,7 @@ class HeuristicMemoryInjector:
         context = HeuristicMemoryContext(
             session=session,
             recent_messages=recent_messages,
-            active_person_ids=self._collect_active_person_ids(recent_messages),
+            active_person_ids=await asyncio.to_thread(self._collect_active_person_ids, recent_messages),
             total_message_count=total_message_count,
         )
         try:
@@ -173,7 +175,7 @@ class HeuristicMemoryInjector:
         return total_message_count - state.last_message_count >= min_new_messages
 
     async def _build_chat_impression(self, context: HeuristicMemoryContext) -> str:
-        prompt = load_prompt(
+        prompt = await asyncio.to_thread(load_prompt,
             "heuristic_memory_impression",
             chat_identity=self._format_chat_identity(context.session),
             message_window=self._format_message_window(context.recent_messages),
@@ -194,7 +196,7 @@ class HeuristicMemoryInjector:
             impression,
             limit=min(20, search_limit),
             mode="search",
-            chat_id="" if cross_chat_enabled else context.session.session_id,
+            chat_id=context.session.session_id,
             person_id="",
             respect_filter=not cross_chat_enabled,
             user_id=str(context.session.user_id or ""),
@@ -208,7 +210,7 @@ class HeuristicMemoryInjector:
         seen_hashes: set[str] = set()
         for hit in result.hits:
             resolved_source = resolved_sources.get(hit.hash_value, "")
-            if not self._is_hit_allowed(hit, context, resolved_source=resolved_source):
+            if not await asyncio.to_thread(self._is_hit_allowed, hit, context, resolved_source=resolved_source):
                 continue
             dedup_key = hit.hash_value or hit.content
             if dedup_key in seen_hashes:

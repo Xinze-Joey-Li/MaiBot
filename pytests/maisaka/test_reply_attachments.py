@@ -31,6 +31,7 @@ def reply_context(monkeypatch):
     user = SimpleNamespace(user_id="user-1", user_nickname="小明", user_cardname="")
     source = SimpleNamespace(
         message_id="msg-1",
+        processed_plain_text="图片",
         message_info=SimpleNamespace(user_info=user, additional_config={}),
         raw_message=MessageSequence([
             TextComponent("图片"),
@@ -213,7 +214,8 @@ async def test_each_successful_text_segment_gets_one_attachment_attempt(reply_co
             return None
         return SimpleNamespace(message_id="sent")
 
-    async def attach(stream_id, tag):
+    async def attach(stream_id, tag, context_text):
+        assert context_text.startswith("图片\n")
         events.append((stream_id, tag))
 
     monkeypatch.setattr(reply_tool.send_service, "_send_to_target_with_message", send)

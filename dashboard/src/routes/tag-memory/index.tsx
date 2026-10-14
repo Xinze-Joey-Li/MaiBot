@@ -50,6 +50,12 @@ type Conflict = {
   resolved_at: number | null
 }
 type Overview = {
+  extraction?: {
+    pending_messages: number
+    oldest_received_at: number | null
+    job: { id: string; attempts: number; error: string; retry_at: number; lease_until: number } | null
+    metrics: { completed: number; failed: number; last_seconds: number; total_seconds: number; extraction_requests: number; conflict_requests: number } | null
+  }
   tree: Tree
   topics: Topic[]
   conflicts: Conflict[]
@@ -285,6 +291,30 @@ export function TagMemoryPage() {
         <div className="tm-rule">
           每 {overview.data.rules.batch_size} 条消息 / {overview.data.rules.max_wait_seconds / 60}{' '}
           分钟提取 · 每 {overview.data.rules.cleanup_interval_days} 天清理 · 保留活跃和长期标签
+        </div>
+      )}
+      {overview.data?.extraction && (
+        <div className="tm-rule">
+          待处理 {overview.data.extraction.pending_messages} 条 · 已完成 {overview.data.extraction.metrics?.completed ?? 0} 批
+          {' · '}失败 {overview.data.extraction.metrics?.failed ?? 0} 次
+          {' · '}最近耗时 {(overview.data.extraction.metrics?.last_seconds ?? 0).toFixed(1)} 秒
+          {' · '}模型请求 {overview.data.extraction.metrics?.extraction_requests ?? 0} 次提取 / {overview.data.extraction.metrics?.conflict_requests ?? 0} 次冲突检查
+          {overview.data.extraction.oldest_received_at != null && <> · 最早消息 {date(overview.data.extraction.oldest_received_at)}</>}
+          {overview.data.extraction.job?.error && (
+            <div role="alert">
+              提取失败：{overview.data.extraction.job.error}
+              <button
+                disabled={busy || overview.data.extraction.job.lease_until > Date.now() / 1000}
+                onClick={() => {
+                  const job = overview.data?.extraction?.job
+                  if (job) void act(
+                    () => backendApi.post(`${base}/extraction/${encodeURIComponent(job.id)}/retry`, {}),
+                    '已安排重试，将在一分钟内拾取。'
+                  )
+                }}
+              >重试</button>
+            </div>
+          )}
         </div>
       )}
       {(error || queryError) && (

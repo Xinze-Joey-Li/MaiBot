@@ -1,0 +1,7 @@
+{
+  "replace_with_emoji_file_hash": {
+    "keywords": ["游戏", "抽卡"],
+    "useWhen": ["赢了", "出货"],
+    "quality": 1.0
+  }
+}

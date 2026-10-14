@@ -355,6 +355,9 @@ class MemoryService:
         clean_person_id = str(person_id or "").strip()
         if not clean_person_id:
             return PersonProfileResult()
+        if chat_id:
+            payload = await self.profile_admin(action="query", person_id=clean_person_id, chat_id=chat_id, limit=limit)
+            return self._coerce_profile_result(payload)
         try:
             payload = await self._invoke(
                 "get_person_profile",
@@ -431,6 +434,16 @@ class MemoryService:
 
     async def profile_admin(self, *, action: str, **kwargs) -> Dict[str, Any]:
         try:
+            # 会话查询必须走隔离的标签画像；全局画像仅供登录管理员使用。
+            if kwargs.get("chat_id"):
+                if action != "query":
+                    raise ValueError("会话内不允许修改全局人物画像")
+                from .tag_memory_service import tag_memory_service
+
+                return await tag_memory_service.get_person_profile(
+                    kwargs["chat_id"], person_id=kwargs.get("person_id", ""),
+                    person_keyword=kwargs.get("person_keyword", ""), limit=kwargs.get("limit", 10),
+                )
             return await self._invoke_admin("memory_profile_admin", action=action, **kwargs)
         except Exception as exc:
             logger.warning(f"画像管理调用失败: {exc}")

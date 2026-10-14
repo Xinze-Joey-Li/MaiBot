@@ -5,10 +5,11 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import asyncio
 import json
+import time
 
 from .tag_memory_service import tag_memory_service
 from .tag_memory_store import StaleTagConflict, TagCandidate, TagMemoryStore
-from .tag_conflict_service import decide_tag_conflicts
+from .tag_conflict_service import ConflictBudgetExceeded, InvalidConflictOutput, decide_tag_conflicts
 
 
 @dataclass
@@ -90,12 +91,14 @@ class TagExtractionService:
     def __init__(self) -> None:
         self._store: Optional[TagMemoryStore] = None
         self._worker: Optional[asyncio.Task] = None
+        self._jobs: Set[asyncio.Task] = set()
         self._io_tasks: Set[asyncio.Task] = set()
         self._wake = asyncio.Event()
 
     async def _io(self, function: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         task = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
         self._io_tasks.add(task)
+        task.add_done_callback(self._io_tasks.discard)
         try:
             return await asyncio.shield(task)
         finally:
@@ -149,11 +152,65 @@ class TagExtractionService:
             return
         self._store = await tag_memory_service._get_store()
         # 只在首次启用建立当前位置，已有扫描进度不会被重启覆盖。
-        await self._io(self._store.initialize_scanner, await self._io(self._latest_message_id))
+        latest_id = await self._io(self._latest_message_id)
+        await self._io(self._store.initialize_scanner, latest_id)
+        if await self._io(self._store.scanner_position) > latest_id:
+            raise RuntimeError("标签扫描游标超过主消息库最大 ID；请成套恢复消息库与标签库，拒绝静默跳过新消息")
         self._worker = asyncio.create_task(self._worker_loop(), name="tag_extraction")
 
     def notify_message_saved(self) -> None:
         self._wake.set()
+
+    @staticmethod
+    def batch_sizes_for_sessions(rules: List[Any]) -> Dict[str, int]:
+        if not rules:
+            return {}
+        from src.common.utils.utils_config import ChatConfigUtils
+
+        result = {}
+        for rule in rules:
+            target = {"platform": rule.platform, "item_id": rule.item_id, "type": "group"}
+            for session_id in ChatConfigUtils.get_target_session_ids(target):
+                result[session_id] = rule.batch_size
+        return result
+
+    async def _run_job(self, job: Dict[str, Any]) -> None:
+        from src.common.logger import get_logger
+
+        logger = get_logger("tag_extraction")
+        started = time.monotonic()
+        success = False
+        cancelled = False
+        deferred = False
+        try:
+            # 限制单群故障占用槽位的时间，另一个群仍可独立完成提取。
+            await asyncio.wait_for(self._process_job(job), timeout=180)
+            success = True
+            logger.info(f"批量标签提取完成: session_id={job['session_id']} job_id={job['id']}")
+        except ConflictBudgetExceeded:
+            deferred = True
+            if self._store is not None:
+                await self._io(self._store.defer_extraction_job, job["id"])
+        except asyncio.CancelledError:
+            cancelled = True
+            raise
+        except Exception as error:
+            logger.exception(f"批量标签提取失败: session_id={job['session_id']} job_id={job['id']}；消息保留待重试")
+            if self._store is not None:
+                try:
+                    await self._io(self._store.fail_extraction_job, job["id"], str(error) or type(error).__name__,
+                                   invalid_output=isinstance(error, InvalidTagOutput),
+                                   invalid_conflict=isinstance(error, (StaleTagConflict, InvalidConflictOutput)))
+                except Exception:
+                    logger.exception("标签提取失败状态写入数据库失败")
+        finally:
+            if self._store is not None and not cancelled and not deferred:
+                try:
+                    await self._io(self._store.record_extraction_metrics, job["session_id"],
+                                   time.monotonic() - started, success)
+                except Exception:
+                    logger.exception("标签提取耗时统计写入失败")
+            self._wake.set()
 
     async def _process_job(self, job: Dict[str, Any]) -> None:
         from src.common.prompt_i18n import load_prompt
@@ -169,13 +226,17 @@ class TagExtractionService:
         previous_tags = next((batch["tags"] for batch in context if batch["id"] == payload["previous_batch_id"]), [])
         output = job["model_output"]
         if output is None:
-            prompt_data = {"messages": payload["messages"], "previous_batches": context[-3:],
-                           "previous_extraction_tags": previous_tags}
+            output = await self._io(store.read_job_cache, job["id"], "output")
+        if output is None:
+            # 相邻任务共享的前文放在消息之前；只压缩 JSON 结构空白，不裁掉证据。
+            prompt_data = {"previous_batches": context[-3:], "previous_extraction_tags": previous_tags,
+                           "messages": payload["messages"]}
             template = await self._io(load_prompt, "tag_extraction")
-            prompt = template.replace("{input_json}", json.dumps(prompt_data, ensure_ascii=False))
+            prompt = template.replace("{input_json}", json.dumps(prompt_data, ensure_ascii=False, separators=(",", ":")))
             client = LLMServiceClient(
                 task_name="memory", request_type="qq_agent.tag_extraction", session_id=job["session_id"]
             )
+            await self._io(store.record_model_request, job["session_id"])
             response = await client.generate_response(prompt)
             output = response.response
         try:
@@ -183,13 +244,31 @@ class TagExtractionService:
         except (ValueError, TypeError) as error:
             raise InvalidTagOutput(str(error)) from error
         # 已校验输出先持久化；数据库提交失败时重用结果，不重复支付模型调用。
+        await self._io(store.write_job_cache, job["id"], "output", output)
         await self._io(store.cache_extraction_output, job["id"], output)
         scope, name = await self._io(tag_memory_service._resolve_scope, job["session_id"])
         await self._io(tag_memory_service._verify_sources, scope, [item["message_id"] for item in payload["messages"]])
         # 冲突检查是独立模型请求；裁决缓存让数据库重试不重复调用模型。
         if job.get("conflict_output") is None:
             old_tags = await self._io(store.list_current_tags, scope)
-            decisions = await decide_tag_conflicts(scope, parsed.tags, old_tags)
+
+            async def read_chunk(key: str) -> Optional[str]:
+                return await self._io(store.get_conflict_chunk, job["id"], key)
+
+            async def write_chunk(key: str, output: str) -> None:
+                await self._io(store.cache_conflict_chunk, job["id"], key, output)
+
+            async def count_request() -> None:
+                await self._io(store.record_model_request, scope, conflict=True)
+
+            progress = await self._io(store.read_job_cache, job["id"], "conflicts")
+
+            async def checkpoint(state: Dict[str, Any]) -> None:
+                await self._io(store.write_job_cache, job["id"], "conflicts", state)
+
+            decisions = await decide_tag_conflicts(scope, parsed.tags, old_tags, read_cache=read_chunk,
+                                                  write_cache=write_chunk, on_request=count_request,
+                                                  progress=progress, checkpoint=checkpoint)
             checked = {tag["id"]: tag["revision"] for tag in old_tags if any(
                 tag["category_path"] == list(candidate.category_path) for candidate in parsed.tags)}
             await self._io(store.cache_conflict_output, job["id"], decisions, checked)
@@ -201,6 +280,8 @@ class TagExtractionService:
         await self._io(store.record_batch, session_id=scope, session_name=name, external_id=f"extract:{job['id']}",
                        summary=parsed.summary, message_ids=[item["message_id"] for item in payload["messages"]],
                        tags=parsed.tags, extraction_job_id=job["id"], conflict_decisions=decisions, conflict_versions=checked)
+        for kind in ("output", "conflicts", "failures"):
+            await self._io(store.remove_job_cache, job["id"], kind)
 
     async def _worker_loop(self) -> None:
         from src.common.logger import get_logger
@@ -208,7 +289,6 @@ class TagExtractionService:
 
         logger = get_logger("tag_extraction")
         while True:
-            job = None
             try:
                 self._wake.clear()
                 config = global_config.chat.tag_memory
@@ -219,12 +299,20 @@ class TagExtractionService:
                     position = await self._io(store.scanner_position)
                     candidates, last_id, more = await self._io(self._read_page, position)
                     await self._io(store.enqueue_page, candidates, last_id)
-                    job = await self._io(store.next_extraction_job, config.batch_size, config.max_wait_seconds)
-                    if job is not None:
-                        await self._process_job(job)
-                        logger.info(f"批量标签提取完成: session_id={job['session_id']} job_id={job['id']}")
-                        continue
+                    finished = {task for task in self._jobs if task.done()}
+                    if finished:
+                        await asyncio.gather(*finished)
+                        self._jobs.difference_update(finished)
+                    batch_sizes = await self._io(self.batch_sizes_for_sessions, config.batch_rules)
+                    # 扫描不等待模型；总并发固定为二，同一群由持久化租约保证串行。
+                    while len(self._jobs) < 2:
+                        job = await self._io(store.next_extraction_job, config.batch_size,
+                                             config.max_wait_seconds, claim=True, batch_sizes=batch_sizes)
+                        if job is None:
+                            break
+                        self._jobs.add(asyncio.create_task(self._run_job(job), name=f"tag_extract:{job['session_id']}"))
                     if more:
+                        await asyncio.sleep(0)
                         continue
                 try:
                     await asyncio.wait_for(self._wake.wait(), timeout=60)
@@ -232,15 +320,8 @@ class TagExtractionService:
                     pass
             except asyncio.CancelledError:
                 raise
-            except Exception as error:
+            except Exception:
                 logger.exception("批量标签提取失败，消息和任务保留待重试")
-                if job is not None and self._store is not None:
-                    try:
-                        await self._io(self._store.fail_extraction_job, job["id"], str(error),
-                                       invalid_output=isinstance(error, InvalidTagOutput),
-                                       invalid_conflict=isinstance(error, StaleTagConflict))
-                    except Exception:
-                        logger.exception("标签提取失败状态写入数据库失败")
                 await asyncio.sleep(60)
 
     async def shutdown(self) -> None:
@@ -248,6 +329,11 @@ class TagExtractionService:
             self._worker.cancel()
             await asyncio.gather(self._worker, return_exceptions=True)
             self._worker = None
+        for task in self._jobs:
+            task.cancel()
+        if self._jobs:
+            await asyncio.gather(*self._jobs, return_exceptions=True)
+            self._jobs.clear()
         if self._io_tasks:
             await asyncio.gather(*self._io_tasks, return_exceptions=True)
             self._io_tasks.clear()

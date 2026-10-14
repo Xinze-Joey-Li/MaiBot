@@ -135,6 +135,35 @@ class TagMemoryService:
         scope, _ = await asyncio.to_thread(self._resolve_scope, session_id)
         return await asyncio.to_thread(store.get_conflicts, scope)
 
+    async def get_person_profile(
+        self, session_id: str, *, person_id: str = "", person_keyword: str = "", limit: int = 10,
+    ) -> Dict[str, Any]:
+        """会话内画像只由本群有效人物标签组成，不读取全局画像快照或人工覆盖。"""
+        from src.chat.message_receive.chat_manager import chat_manager
+        from src.person_info.person_info import resolve_person_id_for_memory
+
+        store = await self._get_store()
+        scope, _ = await asyncio.to_thread(self._resolve_scope, session_id)
+
+        def query() -> Dict[str, Any]:
+            session = chat_manager.get_existing_session_by_session_id(scope)
+            if session is None:
+                raise ValueError("真实聊天流已不存在")
+            pid = person_id
+            if not pid and person_keyword:
+                pid = resolve_person_id_for_memory(person_name=person_keyword)
+            users = store.list_person_user_ids(scope)
+            matched = {user for user in users if resolve_person_id_for_memory(
+                platform=session.platform, user_id=user) == pid}
+            # 在数据库中过滤人物并限制条数，避免高频群每次画像查询加载整群证据。
+            selected = store.list_current_tags(scope, person_users=list(matched), limit=max(1, min(limit, 20)))
+            text = "\n".join(f"- {item['name']}：{item['summary']}" for item in selected)
+            return {"success": True, "person_id": pid, "profile_text": text, "summary": text,
+                    "profile_source": "session_tags", "chat_id": scope, "has_manual_override": False,
+                    "uncertain_candidates": [], "evidence": [source for item in selected for source in item["evidence"]]}
+
+        return await asyncio.to_thread(query)
+
     async def update_tag(
         self, session_id: str, tag_id: str, *, is_active: Optional[bool] = None,
         requires_long_term: Optional[bool] = None,

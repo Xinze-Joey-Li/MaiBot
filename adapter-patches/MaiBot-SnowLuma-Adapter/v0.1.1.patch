@@ -4,7 +4,7 @@ index ff31c87..49ac5c1 100644
 +++ b/CHANGELOG.md
 @@ -1,5 +1,11 @@
  # Changelog
-
+ 
 +## [0.1.1] — 2026-10-13
 +
 +### 主要功能
@@ -12,7 +12,7 @@ index ff31c87..49ac5c1 100644
 +- 戳一戳：群聊或私聊被戳时自动回戳发起者，不调用模型或触发普通回复；按发起用户独立回戳，不设置本地限流，忽略自身和非本账号目标。通知总开关和自动回戳开关可停用该功能。
 +
  ## [1.1.5] — 2026-10-11
-
+ 
  ### 主要功能
 diff --git a/README.md b/README.md
 index a673f60..176904b 100644
@@ -20,7 +20,7 @@ index a673f60..176904b 100644
 +++ b/README.md
 @@ -78,3 +78,10 @@ token 鉴权不区分画像：连接时同时附带 `Authorization: Bearer` 头
  `access_token` 参数（OneBot v11 两种标准方式），两类服务端各取所需。
-
+ 
  ```
 +## 戳一戳自动回戳
 +
@@ -65,12 +65,12 @@ index c318254..eee9515 100644
 +++ b/runtime/router.py
 @@ -166,8 +166,35 @@ class QQEventRouter:
          self_id = str(payload.get("self_id") or "").strip()
-
+ 
          await runtime.ban_tracker.record_notice(payload)
 +        if await self._handle_auto_poke_back(payload, self_id, settings):
 +            return
          await self.route_notice_payload(payload, self_id, settings.client.connection_id)
-
+ 
 +    async def _handle_auto_poke_back(
 +        self, payload: QQPayloadDict, self_id: str, settings: QQPluginSettings
 +    ) -> bool:

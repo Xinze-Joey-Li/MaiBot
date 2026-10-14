@@ -9,6 +9,7 @@ from src.chat.message_receive.message import SessionMessage
 from src.chat.utils.utils import is_bot_self
 
 from .dynamic_gate import DynamicReplyGate
+from .pending_observation import PendingObservation
 from .reply_likelihood import (
     DEFAULT_SECONDS_SINCE_BOT_MESSAGE,
     ReplyLikelihoodInput,
@@ -45,6 +46,7 @@ class DynamicReplyTurnGate:
     def __init__(self, runtime: "MaisakaHeartFlowChatting") -> None:
         self._runtime = runtime
         self._gate = DynamicReplyGate()
+        self._observation = PendingObservation()
         self._round_message_ids: Set[str] = set()
         """当前虚拟轮次内已到达的外部消息 ID。"""
 
@@ -65,6 +67,7 @@ class DynamicReplyTurnGate:
         *,
         pending_messages: Sequence[SessionMessage],
         frequency: float,
+        allow_observation: bool = False,
     ) -> TurnGateResult:
         """返回动态门控的触发判定。"""
 
@@ -96,6 +99,21 @@ class DynamicReplyTurnGate:
             self._build_likelihood_input(external_messages, now, pending_messages=external_messages)
         )
         gate_decision = self._gate.evaluate(score.probability, frequency, now)
+        last_reply_at = max((message.timestamp.timestamp() for message in self._runtime._chat_history
+                             if message.source in {"guided_reply", "priority_at_reply", "silence_emoji", "auto_repeat"}),
+                            default=0.0)
+        observed, delay = self._observation.evaluate(
+            message_ids=tuple(message.message_id for message in external_messages), now=now,
+            newest_at=max(message.timestamp.timestamp() for message in external_messages),
+            last_reply_at=last_reply_at, gap=gate_decision.threshold - score.probability,
+            eligible=allow_observation and not gate_decision.should_trigger,
+        )
+        if observed:
+            self._gate.close_round()
+            return TurnGateResult(decision="trigger", detail=f"动态门控: {gate_decision.detail} 判定=待观察机会进入Planner")
+        if delay is not None:
+            return TurnGateResult(decision="delay", delay_seconds=delay,
+                                  detail=f"动态门控: {gate_decision.detail} 判定=待观察一次 延迟={delay:.0f}s")
         if gate_decision.should_trigger:
             self._gate.close_round()
         decision_label = "进入Planner" if gate_decision.should_trigger else "等待更多消息"
@@ -153,7 +171,7 @@ class DynamicReplyTurnGate:
         recent_total_count = 0
         seconds_since_bot: Optional[float] = None
         for message in reversed(self._runtime._chat_history):
-            if message.source in {"auto_repeat", "priority_at_reply", "silence_emoji"}:
+            if message.source in {"auto_repeat", "priority_at_reply", "silence_emoji", "reply_emoji_attachment"}:
                 continue
             if not message.count_in_context:
                 continue

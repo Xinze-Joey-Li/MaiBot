@@ -526,6 +526,28 @@ def test_chat_summary_writeback_counts_until_trigger_message(monkeypatch):
     assert calls == [{"session_id": "session-1", "end_time": 123.45}]
 
 
+@pytest.mark.asyncio
+async def test_person_fact_prompt_reuses_rules_without_losing_evidence():
+    prompts = []
+
+    async def generate_response(prompt):
+        prompts.append(prompt)
+        return SimpleNamespace(response="[]")
+
+    service = memory_flow_module.PersonFactWritebackService()
+    service._extractor = SimpleNamespace(generate_response=generate_response)
+    for name in ("甲", "乙"):
+        result = await service._extract_facts(
+            SimpleNamespace(person_name=name), "机器人回复", f"{name}：我喜欢音乐"
+        )
+        assert result == []
+    assert prompts[0].split("目标人物：")[0] == prompts[1].split("目标人物：")[0]
+    assert "甲：我喜欢音乐" in prompts[0]
+    assert "乙：我喜欢音乐" in prompts[1]
+    assert "机器人回复" in prompts[0]
+    assert prompts[0].index("证据片段必须逐字") < prompts[0].index("目标人物：")
+
+
 def test_summary_prompt_keeps_static_rules_before_chat_history():
     prompt = SUMMARY_PROMPT_TEMPLATE.format(
         bot_name="测试机器人",

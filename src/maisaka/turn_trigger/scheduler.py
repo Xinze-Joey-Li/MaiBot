@@ -29,6 +29,10 @@ class MessageTurnScheduler:
 
     def schedule_message_turn(self) -> None:
         runtime = self._runtime
+        from src.maisaka.planner_lifecycle import lifecycle_mode
+
+        if lifecycle_mode() == "optimized" and runtime._agent_state == runtime._STATE_RUNNING:
+            return
         if not focus_mode_manager.can_decide(
             runtime.session_id,
             is_group_chat=runtime.chat_stream.is_group_session,
@@ -79,6 +83,7 @@ class MessageTurnScheduler:
             dynamic_result = self._dynamic_reply_gate.evaluate(
                 pending_messages=runtime.message_cache[runtime._last_processed_index :],
                 frequency=effective_frequency,
+                allow_observation=runtime._agent_state == "stop",
             )
             logger.info(
                 f"{runtime.log_prefix} 回复频率调度: [频率: {formatted_frequency}][{pending_count} 消息] "
@@ -86,6 +91,8 @@ class MessageTurnScheduler:
             )
             if dynamic_result.should_trigger:
                 runtime._enqueue_message_turn()
+            elif dynamic_result.delay_seconds is not None:
+                runtime._defer_message_turn_check(dynamic_result.delay_seconds)
             return
 
         # frequency 仅在旧模式被显式选择时计算；dynamic 完全由权重评分和动态额度判定。

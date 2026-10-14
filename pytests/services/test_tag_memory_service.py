@@ -75,6 +75,25 @@ class TagMemoryServiceTest(IsolatedAsyncioTestCase):
             finally:
                 await self.service.shutdown()
 
+    async def test_profile_uses_only_valid_tags_in_current_session(self) -> None:
+        self.resolve.return_value = SimpleNamespace(session_id="actual-group", platform="qq")
+        self.modules["src.person_info.person_info"] = SimpleNamespace(
+            resolve_person_id_for_memory=lambda **kwargs: "same-person" if kwargs.get("user_id") == "user" else "other-person")
+        with patch.dict("sys.modules", self.modules):
+            try:
+                store = await self.service._get_store()
+                for scope, text in (("actual-group", "喜欢茶"), ("other-group", "喜欢咖啡")):
+                    store.record_batch(session_id=scope, session_name=scope, external_id="batch", summary=text,
+                        message_ids=["m1"], tags=[TagCandidate("饮料", text, ("人物", "user", "偏好"), ["m1"])])
+                payload = await self.service.get_person_profile("requested-group", person_id="same-person")
+                self.assertIn("喜欢茶", payload["summary"])
+                self.assertNotIn("咖啡", str(payload))
+                tag = store.list_current_tags("actual-group")[0]
+                store.delete_tag("actual-group", tag["id"], tag["revision"], "已纠正")
+                self.assertEqual((await self.service.get_person_profile("requested-group", person_id="same-person"))["summary"], "")
+            finally:
+                await self.service.shutdown()
+
     async def test_parallel_start_creates_one_worker(self) -> None:
         with patch.dict("sys.modules", self.modules):
             try:

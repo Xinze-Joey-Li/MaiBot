@@ -312,6 +312,9 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
         self._schedule_message_turn()
         self._update_stage_status("空闲", "等待消息触发")
         logger.info(f"{self.log_prefix} Maisaka 运行时已启动")
+        from src.maisaka.mode_policy import log_reply_trigger_mode
+
+        log_reply_trigger_mode(self.log_prefix)
 
     async def _restore_recent_context_from_db(self) -> None:
         """启动时从消息库恢复最近上下文，避免重启后丢失短期对话窗口。"""
@@ -521,6 +524,8 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
 
         user_info = message.message_info.user_info
         if is_bot_self(message.platform, user_info.user_id):
+            if message.message_info.additional_config.get("reply_emoji_attachment") is True:
+                return "reply_emoji_attachment"
             if message.message_info.additional_config.get("silence_emoji") is True:
                 return "silence_emoji"
             if (message.message_info.additional_config or {}).get("priority_at_response") is True:
@@ -595,7 +600,7 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
                 quote_ids=extract_quote_ids_from_message_sequence(message.raw_message),
                 include_message_id=not message.is_notify and bool(message.message_id),
                 include_chat_id=include_chat_id,
-                is_self_message=source_kind in {"guided_reply", "auto_repeat", "priority_at_reply", "silence_emoji"},
+                is_self_message=source_kind in {"guided_reply", "auto_repeat", "priority_at_reply", "silence_emoji", "reply_emoji_attachment"},
             )
             history_message = SessionBackedMessage.from_session_message(
                 message,
@@ -981,6 +986,12 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
     def _request_planner_interrupt_for_message(self, message: SessionMessage) -> None:
         """在运行中的 Planner 可打断时，按连续打断限制发起一次中断。"""
 
+        from src.maisaka.planner_lifecycle import lifecycle_mode
+
+        if lifecycle_mode() == "optimized":
+            # 新消息留在缓存，不中断旧工具链后直接合并重试而绕过外部门控。
+            return
+
         if self._agent_state != self._STATE_RUNNING:
             return
 
@@ -1297,7 +1308,9 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
         except asyncio.CancelledError:
             return
         finally:
-            self._deferred_message_turn_task = None
+            # 被替换的旧定时器不能清除新任务的引用，否则关闭时无法取消它。
+            if self._deferred_message_turn_task is asyncio.current_task():
+                self._deferred_message_turn_task = None
 
     def _update_message_trigger_state(self, message: SessionMessage) -> None:
         """补齐消息中的 @/提及 标记，并在命中时启用强制触发。"""

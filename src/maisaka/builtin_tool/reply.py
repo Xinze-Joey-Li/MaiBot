@@ -587,7 +587,8 @@ async def handle_tool(
                     set_reply=segment_set_quote,
                     reply_message=segment_reply_message,
                     selected_expressions=reply_result.selected_expression_ids or None,
-                    typing=index > 0,
+                    # 回复器已扣除模型耗时并等待一次，分段不再叠加旧打字延迟。
+                    typing=False,
                     sync_to_maisaka_history=True,
                     maisaka_source_kind="guided_reply",
                 )
@@ -618,7 +619,9 @@ async def handle_tool(
                 if any(isinstance(component, TextComponent) for component in reply_sequence.components):
                     from src.emoji_system.reply_attachment import send_after_text
 
-                    await send_after_text(tool_ctx.runtime.session_id, reply_result.selected_emoji_tag)
+                    await send_after_text(tool_ctx.runtime.session_id, reply_result.selected_emoji_tag,
+                                          ((target_message.processed_plain_text or "") if target_message is not None else "")
+                                          + "\n" + segment)
     except Exception:
         logger.exception(f"{tool_ctx.runtime.log_prefix} 发送文字消息时发生异常，目标消息编号={target_message_id}")
         return tool_ctx.build_failure_result(
@@ -675,6 +678,8 @@ async def handle_tool(
             reply_metadata=reply_metadata,
             replyer_context_messages=replyer_chat_history,
         )
+    reply_metadata["planner_task_completed"] = True
+    reply_metadata["planner_continuation_required"] = False
     return tool_ctx.build_success_result(
         invocation.tool_name,
         reply_receipt,

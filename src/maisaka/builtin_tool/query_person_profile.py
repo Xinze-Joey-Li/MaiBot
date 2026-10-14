@@ -103,16 +103,21 @@ async def handle_tool(
         )
 
     limit = _normalize_limit(invocation.arguments.get("limit"))
+    session_id = tool_ctx.runtime.session_id
+    if not session_id:
+        return tool_ctx.build_failure_result(invocation.tool_name, "人物画像查询缺少真实会话 ID。")
     try:
         if person_id:
             payload = await memory_service.profile_admin(
                 action="query",
+                chat_id=session_id,
                 person_id=person_id,
                 limit=limit,
             )
         else:
             payload = await memory_service.profile_admin(
                 action="query",
+                chat_id=session_id,
                 person_keyword=person_name,
                 limit=limit,
             )

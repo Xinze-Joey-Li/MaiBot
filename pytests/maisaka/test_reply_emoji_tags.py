@@ -84,6 +84,7 @@ async def test_two_independent_random_draws_and_emoji_only_bubble(monkeypatch, t
     if sends:
         args = sender.call_args.kwargs
         assert args["set_reply"] is False
+        assert args["maisaka_source_kind"] == "reply_emoji_attachment"
         components = args["message_sequence"].components
         assert len(components) == 1 and isinstance(components[0], EmojiComponent)
 
@@ -106,7 +107,8 @@ def test_pending_failure_and_exact_cooldown_boundary(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_platform_gate_exempts_silence_and_standalone_at_without_reset(monkeypatch):
+@pytest.mark.parametrize("after_send_failure", [False, True])
+async def test_platform_gate_exempts_silence_and_standalone_at_without_reset(monkeypatch, after_send_failure):
     now = [100.0]
     monkeypatch.setattr(gate_module, "time", SimpleNamespace(monotonic=lambda: now[0]))
     monkeypatch.setattr(gate_module, "group_emoji_gate", gate_module.GroupEmojiGate())
@@ -118,6 +120,8 @@ async def test_platform_gate_exempts_silence_and_standalone_at_without_reset(mon
     monkeypatch.setattr(send_service, "get_platform_io_manager", lambda: manager)
 
     async def hook(name, message, **kwargs):
+        if after_send_failure and name == "send_service.after_send":
+            raise RuntimeError("post-delivery hook failed")
         return SimpleNamespace(aborted=False, kwargs={}), message
 
     monkeypatch.setattr(send_service, "_invoke_send_hook", hook)

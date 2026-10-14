@@ -8,11 +8,13 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import hashlib
 import json
+import os
 import re
 import sqlite3
 import time
 import uuid
 
+MAX_EXTRACTION_ATTEMPTS = 5
 DAY_SECONDS = 86400
 _INITIALIZE_LOCK = Lock()
 
@@ -31,6 +33,39 @@ class TagCandidate:
     requires_long_term: bool = False
     previous_tag_id: Optional[str] = None
     evidence_quotes: Dict[str, str] = field(default_factory=dict)
+
+
+def validate_conflict_pairs(decisions: List[Dict[str, Any]], new_count: int) -> Dict[int, str]:
+    """按独立标签对校验，聚合新标签状态，拒绝真正的多方矛盾。"""
+    pairs = set()
+    new_statuses: Dict[int, str] = {}
+    rank = {"valid": 0, "disputed": 1, "superseded": 2}
+    for item in decisions:
+        index = item["new_index"]
+        old_id = item["old_tag_id"]
+        action = item["decision"]
+        if type(index) is not int or not 0 <= index < new_count or not isinstance(old_id, str) or not old_id:
+            raise ValueError("冲突裁决的标签引用无效")
+        if action not in {"replace_old", "keep_old", "uncertain"} or not isinstance(item["reason"], str) or not item["reason"].strip():
+            raise ValueError("冲突裁决动作或理由无效")
+        pair = (index, old_id)
+        if pair in pairs:
+            raise ValueError("同一新旧标签对收到重复冲突裁决")
+        pairs.add(pair)
+        status = {"replace_old": "valid", "keep_old": "superseded", "uncertain": "disputed"}[action]
+        current = new_statuses.get(index, "valid")
+        if rank[status] > rank[current]:
+            new_statuses[index] = status
+        else:
+            new_statuses[index] = current
+    replacements: Dict[str, int] = {}
+    for item in decisions:
+        if item["decision"] == "replace_old" and new_statuses[item["new_index"]] == "valid":
+            old_id = item["old_tag_id"]
+            if old_id in replacements and replacements[old_id] != item["new_index"]:
+                raise ValueError("多个有效新标签同时替代同一旧事实，需要校验新标签间关系")
+            replacements[old_id] = item["new_index"]
+    return new_statuses
 
 
 class TagMemoryStore:
@@ -63,7 +98,7 @@ class TagMemoryStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1, 2, 3, 4, 5, 6):
+            if version not in (0, 1, 2, 3, 4, 5, 6, 7, 8):
                 raise RuntimeError(f"不支持的标签数据库版本: {version}")
             connection.execute("PRAGMA journal_mode=WAL")
             connection.executescript("""
@@ -163,6 +198,23 @@ class TagMemoryStore:
             connection.execute("CREATE INDEX IF NOT EXISTS ix_tags_manual_deadline ON tags(manual_active_until,session_id)")
             if "conflict_output" not in {row[1] for row in connection.execute("PRAGMA table_info(extraction_jobs)")}:
                 connection.execute("ALTER TABLE extraction_jobs ADD COLUMN conflict_output TEXT")
+            if "lease_until" not in {row[1] for row in connection.execute("PRAGMA table_info(extraction_jobs)")}:
+                connection.execute("ALTER TABLE extraction_jobs ADD COLUMN lease_until REAL NOT NULL DEFAULT 0")
+            connection.executescript("""
+                CREATE TABLE IF NOT EXISTS extraction_metrics (
+                    session_id TEXT PRIMARY KEY, last_started_at REAL NOT NULL DEFAULT 0,
+                    completed INTEGER NOT NULL DEFAULT 0, failed INTEGER NOT NULL DEFAULT 0,
+                    total_seconds REAL NOT NULL DEFAULT 0, last_seconds REAL NOT NULL DEFAULT 0
+                );
+                CREATE INDEX IF NOT EXISTS ix_extraction_ready ON extraction_jobs(retry_at,lease_until);
+                CREATE TABLE IF NOT EXISTS extraction_conflict_chunks (
+                    job_id TEXT NOT NULL REFERENCES extraction_jobs(id) ON DELETE CASCADE,
+                    cache_key TEXT NOT NULL, output TEXT NOT NULL, PRIMARY KEY(job_id,cache_key)
+                );
+            """)
+            for column in ("extraction_requests", "conflict_requests"):
+                if column not in {row[1] for row in connection.execute("PRAGMA table_info(extraction_metrics)")}:
+                    connection.execute(f"ALTER TABLE extraction_metrics ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0")
             connection.executescript("""
                 CREATE TABLE IF NOT EXISTS tag_conflicts (
                     id TEXT PRIMARY KEY, session_id TEXT NOT NULL, batch_id TEXT NOT NULL REFERENCES batches(id),
@@ -189,7 +241,40 @@ class TagMemoryStore:
                                    "AND json_extract(r.before_json,'$.auto_active')=0 AND tags.last_active_at<=r.created_at)")
             if version < 6:
                 self._migrate_latest_conflicts(connection)
-            connection.execute("PRAGMA user_version=6")
+            # 两套旧版 schema 7 分别含租约或隔离字段；统一升级到 8，保留任务及分块缓存。
+            for column, kind in (("status", "TEXT NOT NULL DEFAULT 'pending'"),
+                                 ("resumed", "INTEGER NOT NULL DEFAULT 0")):
+                if column not in {row[1] for row in connection.execute("PRAGMA table_info(extraction_jobs)")}:
+                    connection.execute(f"ALTER TABLE extraction_jobs ADD COLUMN {column} {kind}")
+            if version < 8:
+                connection.executescript("""
+                    BEGIN IMMEDIATE;
+                    CREATE TEMP TABLE saved_conflict_chunks AS SELECT * FROM extraction_conflict_chunks;
+                    DROP TABLE extraction_conflict_chunks;
+                    CREATE TABLE extraction_jobs_v8 (
+                        id TEXT PRIMARY KEY, session_id TEXT NOT NULL, payload TEXT NOT NULL,
+                        model_output TEXT, retry_at REAL NOT NULL DEFAULT 0, attempts INTEGER NOT NULL DEFAULT 0,
+                        error TEXT NOT NULL DEFAULT '', conflict_output TEXT,
+                        status TEXT NOT NULL DEFAULT 'pending', resumed INTEGER NOT NULL DEFAULT 0,
+                        lease_until REAL NOT NULL DEFAULT 0
+                    );
+                    INSERT INTO extraction_jobs_v8
+                        SELECT id,session_id,payload,model_output,retry_at,attempts,error,conflict_output,status,resumed,lease_until
+                        FROM extraction_jobs;
+                    DROP TABLE extraction_jobs;
+                    ALTER TABLE extraction_jobs_v8 RENAME TO extraction_jobs;
+                    UPDATE extraction_jobs SET status='failed' WHERE attempts>=5;
+                    CREATE TABLE extraction_conflict_chunks (
+                        job_id TEXT NOT NULL REFERENCES extraction_jobs(id) ON DELETE CASCADE,
+                        cache_key TEXT NOT NULL, output TEXT NOT NULL, PRIMARY KEY(job_id,cache_key)
+                    );
+                    INSERT INTO extraction_conflict_chunks SELECT * FROM saved_conflict_chunks;
+                    DROP TABLE saved_conflict_chunks;
+                    PRAGMA user_version=8;
+                    COMMIT;
+                """)
+            connection.execute("CREATE INDEX IF NOT EXISTS ix_extraction_ready ON extraction_jobs(status,retry_at,lease_until)")
+            connection.execute("PRAGMA user_version=8")
 
     @staticmethod
     def _migrate_latest_conflicts(connection: sqlite3.Connection) -> None:
@@ -321,10 +406,11 @@ class TagMemoryStore:
                 return {"batch_id": existing["id"], "created": False}
             self._check_conflict_versions(connection, session_id, conflict_versions or {})
             previous_extraction = None
+            allow_topic_update = True
             job_payload = None
             if extraction_job_id is not None:
                 job = connection.execute(
-                    "SELECT payload FROM extraction_jobs WHERE id=? AND session_id=?", (extraction_job_id, session_id)
+                    "SELECT payload,resumed FROM extraction_jobs WHERE id=? AND session_id=?", (extraction_job_id, session_id)
                 ).fetchone()
                 if job is None:
                     raise ValueError("提取任务不存在或不属于当前会话")
@@ -336,7 +422,10 @@ class TagMemoryStore:
                     "SELECT last_batch_id FROM extraction_state WHERE session_id=?", (session_id,)
                 ).fetchone()
                 if (state[0] if state else None) != previous_extraction:
-                    raise ValueError("相邻提取状态发生变化，拒绝提交过期任务")
+                    if not job["resumed"]:
+                        raise ValueError("相邻提取状态发生变化，拒绝提交过期任务")
+                    # 人工恢复隔离任务时可能已有后续批次；保留证据，但不能伪造相邻延续。
+                    allow_topic_update = False
             # 分类树有稳定骨架，人物下可继续按用户 ID 建子节点，共同事件放在群公共分支。
             for branch in ("人物", "群公共"):
                 for category in ("偏好", "事件", "与机器人的互动", "群活动"):
@@ -372,10 +461,29 @@ class TagMemoryStore:
                      for value in dict.fromkeys(tag.source_message_ids)],
                 )
                 inserted_tags.append((tag_id, tag))
-            if job_payload is not None:
+            if job_payload is not None and allow_topic_update:
                 self._update_topics(connection, session_id, previous_extraction, inserted_tags, timestamp)
             # 冲突裁决与新批次、消费游标在同一事务提交，失败时不能留下半次纠正。
-            for decision in conflict_decisions or []:
+            decisions = conflict_decisions or []
+            new_statuses = validate_conflict_pairs(decisions, len(inserted_tags))
+            # 更新任一旧事实时使整条旧冲突链失效，避免其它旧网页裁决恢复已被更新的事实。
+            affected = {item["old_tag_id"] for item in decisions}
+            prior_conflicts = [dict(row) for row in connection.execute(
+                "SELECT id,old_tag_id,new_tag_id FROM tag_conflicts WHERE session_id=? AND batch_id<>?",
+                (session_id, batch_id))] if affected else []
+            invalidated = []
+            while True:
+                matched = [row for row in prior_conflicts if row["old_tag_id"] in affected or row["new_tag_id"] in affected]
+                if not matched:
+                    break
+                for row in matched:
+                    prior_conflicts.remove(row)
+                    invalidated.append((row["id"],))
+                    affected.update(value for value in (row["old_tag_id"], row["new_tag_id"]) if value is not None)
+            connection.executemany("DELETE FROM tag_conflicts WHERE id=?", invalidated)
+            old_statuses: Dict[str, str] = {}
+            rank = {"valid": 0, "disputed": 1, "superseded": 2}
+            for decision in decisions:
                 index = decision["new_index"]
                 if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < len(inserted_tags):
                     raise ValueError("冲突裁决的新标签索引无效")
@@ -392,14 +500,14 @@ class TagMemoryStore:
                 action = decision["decision"]
                 if action not in {"replace_old", "keep_old", "uncertain"} or not decision["reason"].strip():
                     raise ValueError("冲突裁决动作或理由无效")
-                statuses = {old["id"]: "superseded", new_id: "valid"} if action == "replace_old" else (
-                    {old["id"]: "valid", new_id: "superseded"} if action == "keep_old" else {old["id"]: "disputed", new_id: "disputed"})
-                for tag_id, status in statuses.items():
-                    if status == "valid":
-                        connection.execute("UPDATE tags SET status=?,revision=revision+1 WHERE id=?", (status, tag_id))
-                    else:
-                        connection.execute("UPDATE tags SET status=?,is_active=0,auto_active=0,manual_active_until=NULL,"
-                                           "revision=revision+1 WHERE id=?", (status, tag_id))
+                new_status = new_statuses[index]
+                # 被另一旧事实否定的新标签不能反过来淘汰 A；所有标签对先计算完再统一更新。
+                old_status = ("superseded" if new_status == "valid" else
+                              "disputed" if new_status == "disputed" else old["status"]) if action == "replace_old" else (
+                    "valid" if action == "keep_old" else
+                    "disputed" if new_status != "superseded" else old["status"])
+                prior_status = old_statuses.get(old["id"], old_status)
+                old_statuses[old["id"]] = max((prior_status, old_status), key=rank.__getitem__)
                 if action != "replace_old":
                     # 活跃话题摘要也不能继续携带已经拒绝的新说法。
                     connection.execute("UPDATE topics SET title=?,summary=? WHERE session_id=? AND id IN "
@@ -410,14 +518,24 @@ class TagMemoryStore:
                     "SELECT message_id,quote FROM tag_sources WHERE tag_id=?", (old["id"],)
                 )]
                 evidence = json.dumps({"old": {"name": old["name"], "summary": old["summary"], "sources": old_sources},
-                                       "new": asdict(candidate)}, ensure_ascii=False)
-                # 当前标签进入新裁决后，旧链的裁决立即移除，旧网页也无法再提交它。
-                connection.execute("DELETE FROM tag_conflicts WHERE session_id=? AND "
-                                   "(old_tag_id IN (?,?) OR new_tag_id IN (?,?))",
-                                   (session_id, old["id"], new_id, old["id"], new_id))
+                                       "new": asdict(candidate), "old_status_before": old["status"]}, ensure_ascii=False)
+                # 同批的独立标签对都保留证据；上一轮连通冲突链已在应用前统一失效。
                 connection.execute("INSERT INTO tag_conflicts(id,session_id,batch_id,old_tag_id,new_tag_id,decision,reason,evidence,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
                                    (uuid.uuid4().hex, session_id, batch_id, old["id"], new_id, action,
                                     decision["reason"], evidence, timestamp))
+            statuses = {**old_statuses, **{inserted_tags[index][0]: status for index, status in new_statuses.items()}}
+            for conflict in connection.execute("SELECT id,old_tag_id,new_tag_id,evidence FROM tag_conflicts WHERE batch_id=?", (batch_id,)):
+                evidence = json.loads(conflict["evidence"])
+                evidence["applied_old_status"] = statuses[conflict["old_tag_id"]]
+                evidence["applied_new_status"] = statuses[conflict["new_tag_id"]]
+                connection.execute("UPDATE tag_conflicts SET evidence=? WHERE id=?",
+                                   (json.dumps(evidence, ensure_ascii=False), conflict["id"]))
+            for tag_id, status in statuses.items():
+                if status == "valid":
+                    connection.execute("UPDATE tags SET status=?,revision=revision+1 WHERE id=?", (status, tag_id))
+                else:
+                    connection.execute("UPDATE tags SET status=?,is_active=0,auto_active=0,manual_active_until=NULL,"
+                                       "revision=revision+1 WHERE id=?", (status, tag_id))
             connection.execute("""UPDATE topics SET is_active=0 WHERE session_id=? AND NOT EXISTS(
                 SELECT 1 FROM topic_tags tt JOIN tags t ON t.id=tt.tag_id
                 WHERE tt.topic_id=topics.id AND t.status='valid' AND (t.is_active=1 OR t.auto_active=1))""", (session_id,))
@@ -487,38 +605,93 @@ class TagMemoryStore:
                 )
             connection.execute("UPDATE scanner_state SET last_id=MAX(last_id,?) WHERE name='messages'", (last_id,))
 
-    def next_extraction_job(self, batch_size: int = 25, max_wait_seconds: int = 1800) -> Optional[Dict[str, Any]]:
+    def next_extraction_job(
+        self, batch_size: int = 25, max_wait_seconds: int = 1800, *, claim: bool = False,
+        batch_sizes: Optional[Dict[str, int]] = None,
+    ) -> Optional[Dict[str, Any]]:
         if batch_size < 1 or max_wait_seconds < 1:
             raise ValueError("批量大小和最长等待时间必须为正数")
+        if any(size < 1 for size in (batch_sizes or {}).values()):
+            raise ValueError("群批量大小必须为正数")
         now = time.time()
         with self._connect(write=True) as connection:
-            job = connection.execute(
-                "SELECT * FROM extraction_jobs WHERE retry_at<=? ORDER BY rowid LIMIT 1", (now,)
-            ).fetchone()
-            if job:
-                return dict(job)
+            # 从独立失败日志恢复 SQLite 写锁期间未落盘的状态，租约中的任务不可重新选取。
+            for job in connection.execute("SELECT id FROM extraction_jobs WHERE status='pending' AND lease_until<=?", (now,)):
+                failure = self.read_job_cache(job["id"], "failures")
+                if failure is not None:
+                    connection.execute("UPDATE extraction_jobs SET status=?,attempts=?,retry_at=?,error=?, "
+                                       "model_output=CASE WHEN ? THEN NULL ELSE model_output END, "
+                                       "conflict_output=CASE WHEN ? THEN NULL ELSE conflict_output END WHERE id=?",
+                                       (failure["status"],failure["attempts"],failure["retry_at"],failure["error"],
+                                        failure["invalid_output"],failure["invalid_conflict"],job["id"]))
             ready = connection.execute("""
-                SELECT i.session_id FROM tag_inbox i LEFT JOIN extraction_state s ON s.session_id=i.session_id
-                WHERE i.session_id NOT IN(SELECT session_id FROM extraction_jobs)
-                GROUP BY i.session_id HAVING COUNT(*)>=? OR
-                COALESCE(MAX(s.last_submitted_at),MIN(i.received_at))<=? ORDER BY MIN(i.id) LIMIT 1
-            """, (batch_size, now - max_wait_seconds)).fetchone()
+                WITH ready AS (
+                    SELECT j.session_id,? AS batch_size,j.id AS job_id FROM extraction_jobs j
+                    WHERE j.status='pending' AND j.retry_at<=? AND j.lease_until<=?
+                    AND NOT EXISTS(SELECT 1 FROM extraction_jobs busy WHERE busy.session_id=j.session_id AND busy.lease_until>?)
+                    UNION ALL
+                    SELECT i.session_id,COALESCE(l.value,?),NULL FROM tag_inbox i
+                    LEFT JOIN extraction_state s ON s.session_id=i.session_id
+                    LEFT JOIN json_each(?) l ON l.key=i.session_id
+                    WHERE i.session_id NOT IN(SELECT session_id FROM extraction_jobs WHERE status='pending' OR lease_until>?)
+                    AND NOT EXISTS(SELECT 1 FROM extraction_jobs j,json_each(j.payload,'$.inbox_ids') reserved WHERE reserved.value=i.id)
+                    GROUP BY i.session_id HAVING COUNT(*)>=COALESCE(l.value,?) OR
+                    COALESCE(MAX(s.last_submitted_at),MIN(i.received_at))<=?
+                )
+                SELECT r.session_id,r.batch_size,r.job_id FROM ready r LEFT JOIN extraction_metrics m ON m.session_id=r.session_id
+                ORDER BY COALESCE(m.last_started_at,0),r.session_id,r.job_id LIMIT 1
+            """, (batch_size,now,now,now,batch_size,json.dumps(batch_sizes or {}),now,batch_size,now-max_wait_seconds)).fetchone()
             if ready is None:
                 return None
-            session_id = ready[0]
+            session_id, selected_batch_size, job_id = ready
+            connection.execute("INSERT INTO extraction_metrics(session_id,last_started_at) VALUES(?,?) "
+                               "ON CONFLICT(session_id) DO UPDATE SET last_started_at=excluded.last_started_at", (session_id,now))
+            if job_id is not None:
+                if claim:
+                    connection.execute("UPDATE extraction_jobs SET lease_until=? WHERE id=?", (now+240,job_id))
+                return dict(connection.execute("SELECT * FROM extraction_jobs WHERE id=?", (job_id,)).fetchone())
             items = connection.execute(
-                "SELECT * FROM tag_inbox WHERE session_id=? ORDER BY id LIMIT ?", (session_id, batch_size)
-            ).fetchall()
-            previous = connection.execute(
-                "SELECT last_batch_id FROM extraction_state WHERE session_id=?", (session_id,)
-            ).fetchone()
+                "SELECT * FROM tag_inbox i WHERE session_id=? AND NOT EXISTS("
+                "SELECT 1 FROM extraction_jobs j,json_each(j.payload,'$.inbox_ids') reserved WHERE reserved.value=i.id) "
+                "ORDER BY id LIMIT ?", (session_id,selected_batch_size)).fetchall()
+            previous = connection.execute("SELECT last_batch_id FROM extraction_state WHERE session_id=?", (session_id,)).fetchone()
             job_id = uuid.uuid4().hex
-            payload = json.dumps({"inbox_ids": [row["id"] for row in items],
-                                  "messages": [json.loads(row["payload"]) for row in items],
-                                  "previous_batch_id": previous[0] if previous else None}, ensure_ascii=False)
-            connection.execute("INSERT INTO extraction_jobs(id,session_id,payload) VALUES(?,?,?)",
-                               (job_id, session_id, payload))
+            payload = json.dumps({"inbox_ids":[row["id"] for row in items],"messages":[json.loads(row["payload"]) for row in items],
+                                  "previous_batch_id":previous[0] if previous else None},ensure_ascii=False)
+            connection.execute("INSERT INTO extraction_jobs(id,session_id,payload,lease_until) VALUES(?,?,?,?)",
+                               (job_id,session_id,payload,now+240 if claim else 0))
             return dict(connection.execute("SELECT * FROM extraction_jobs WHERE id=?", (job_id,)).fetchone())
+
+    def record_extraction_metrics(self, session_id: str, elapsed: float, success: bool) -> None:
+        with self._connect(write=True) as connection:
+            connection.execute("UPDATE extraction_metrics SET completed=completed+?,failed=failed+?, "
+                               "total_seconds=total_seconds+?,last_seconds=? WHERE session_id=?",
+                               (int(success), int(not success), elapsed, elapsed, session_id))
+
+    def record_model_request(self, session_id: str, *, conflict: bool = False) -> None:
+        column = "conflict_requests" if conflict else "extraction_requests"
+        with self._connect(write=True) as connection:
+            connection.execute(f"UPDATE extraction_metrics SET {column}={column}+1 WHERE session_id=?", (session_id,))
+
+    def get_conflict_chunk(self, job_id: str, cache_key: str) -> Optional[str]:
+        with self._connect() as connection:
+            row = connection.execute("SELECT output FROM extraction_conflict_chunks WHERE job_id=? AND cache_key=?",
+                                     (job_id, cache_key)).fetchone()
+            return row[0] if row else None
+
+    def cache_conflict_chunk(self, job_id: str, cache_key: str, output: str) -> None:
+        with self._connect(write=True) as connection:
+            connection.execute("INSERT OR REPLACE INTO extraction_conflict_chunks VALUES(?,?,?)", (job_id, cache_key, output))
+
+    def extraction_status(self, session_id: str) -> Dict[str, Any]:
+        with self._connect() as connection:
+            queue = connection.execute("SELECT COUNT(*),MIN(received_at) FROM tag_inbox WHERE session_id=?",
+                                       (session_id,)).fetchone()
+            job = connection.execute("SELECT id,attempts,error,retry_at,lease_until,status FROM extraction_jobs WHERE session_id=? ORDER BY (lease_until>0) DESC,(status='pending') DESC,rowid DESC",
+                                     (session_id,)).fetchone()
+            metrics = connection.execute("SELECT * FROM extraction_metrics WHERE session_id=?", (session_id,)).fetchone()
+            return {"pending_messages": queue[0], "oldest_received_at": queue[1],
+                    "job": dict(job) if job else None, "metrics": dict(metrics) if metrics else None}
 
     def cache_extraction_output(self, job_id: str, output: str) -> None:
         with self._connect(write=True) as connection:
@@ -527,11 +700,80 @@ class TagMemoryStore:
                 raise ValueError("提取任务不存在")
 
     def fail_extraction_job(self, job_id: str, error: str, *, invalid_output: bool, invalid_conflict: bool = False) -> None:
+        if invalid_output:
+            self.remove_job_cache(job_id, "output")
+        if invalid_output or invalid_conflict:
+            self.remove_job_cache(job_id, "conflicts")
+        previous = self.read_job_cache(job_id, "failures")
+        # 失败计数在 SQLite 锁之外持久化，避免失败状态写入受阻时继续消耗 API。
+        if previous is None:
+            with self._connect() as connection:
+                row = connection.execute("SELECT attempts FROM extraction_jobs WHERE id=?", (job_id,)).fetchone()
+                if row is None:
+                    raise ValueError("提取任务不存在")
+                previous = {"attempts": row[0]}
+        attempts = previous["attempts"] + 1
+        status = "failed" if attempts >= MAX_EXTRACTION_ATTEMPTS else "pending"
+        retry_at = time.time() + min(60 * 2 ** min(attempts - 1, 10), 3600)
+        self.write_job_cache(job_id, "failures", {
+            "attempts": attempts, "status": status, "retry_at": retry_at, "error": error,
+            "invalid_output": invalid_output, "invalid_conflict": invalid_output or invalid_conflict,
+        })
         with self._connect(write=True) as connection:
-            connection.execute("UPDATE extraction_jobs SET error=?, attempts=attempts+1, retry_at=?, "
+            row = connection.execute("SELECT attempts FROM extraction_jobs WHERE id=?", (job_id,)).fetchone()
+            if row is None:
+                raise ValueError("提取任务不存在")
+            connection.execute("UPDATE extraction_jobs SET error=?, attempts=?, retry_at=?, status=?, lease_until=0, "
                                "model_output=CASE WHEN ? THEN NULL ELSE model_output END, "
                                "conflict_output=CASE WHEN ? THEN NULL ELSE conflict_output END WHERE id=?",
-                               (error, time.time() + 60, invalid_output, invalid_output or invalid_conflict, job_id))
+                               (error, attempts, retry_at, status,
+                                invalid_output, invalid_output or invalid_conflict, job_id))
+
+    def defer_extraction_job(self, job_id: str) -> None:
+        with self._connect(write=True) as connection:
+            connection.execute("UPDATE extraction_jobs SET retry_at=?,lease_until=0 WHERE id=?", (time.time() + 60, job_id))
+
+    def list_extraction_jobs(self, session_id: str) -> List[Dict[str, Any]]:
+        with self._connect() as connection:
+            return [dict(row) for row in connection.execute(
+                "SELECT id,status,attempts,retry_at,error FROM extraction_jobs WHERE session_id=? ORDER BY rowid",
+                (session_id,))]
+
+    def retry_extraction_job(self, session_id: str, job_id: str) -> None:
+        with self._connect(write=True) as connection:
+            row=connection.execute("SELECT lease_until,status,error FROM extraction_jobs WHERE session_id=? AND id=?",(session_id,job_id)).fetchone()
+            if row is None:
+                raise ValueError("当前群不存在该提取任务")
+            if row["lease_until"] > time.time():
+                raise StaleTagConflict("提取任务正在执行，请等待完成或租约到期")
+            if row["status"] != "failed" and not row["error"]:
+                raise ValueError("提取任务尚未失败，不需要人工重试")
+            connection.execute("UPDATE extraction_jobs SET status='pending',attempts=0,retry_at=0,error='',resumed=1,lease_until=0 "
+                               "WHERE id=? AND session_id=?",(job_id,session_id))
+        self.remove_job_cache(job_id,"failures")
+
+    def _job_cache_path(self, job_id: str, kind: str) -> Path:
+        if not re.fullmatch(r"[a-f0-9]{32}", job_id) or kind not in {"output", "conflicts", "failures"}:
+            raise ValueError("任务缓存标识无效")
+        return self.db_path.parent / (self.db_path.name + ".job-cache") / f"{job_id}.{kind}.json"
+
+    def read_job_cache(self, job_id: str, kind: str) -> Any:
+        path = self._job_cache_path(job_id, kind)
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+
+    def write_job_cache(self, job_id: str, kind: str, value: Any) -> None:
+        # SQLite 被锁时仍先持久化模型结果；原子替换确保重启后不重复生成已成功输出。
+        path = self._job_cache_path(job_id, kind)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(".tmp")
+        with temporary.open("w", encoding="utf-8") as stream:
+            json.dump(value, stream, ensure_ascii=False)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+
+    def remove_job_cache(self, job_id: str, kind: str) -> None:
+        self._job_cache_path(job_id, kind).unlink(missing_ok=True)
 
     @staticmethod
     def _check_conflict_versions(connection: sqlite3.Connection, scope: str, versions: Dict[str, int]) -> None:
@@ -559,12 +801,30 @@ class TagMemoryStore:
             if cursor.rowcount != 1:
                 raise ValueError("冲突裁决任务不存在")
 
-    def list_current_tags(self, session_id: str) -> List[Dict[str, Any]]:
+    def list_person_user_ids(self, session_id: str) -> List[str]:
+        with self._connect() as connection:
+            return [row[0] for row in connection.execute(
+                "SELECT DISTINCT json_extract(c.path,'$[1]') FROM categories c JOIN tags t ON t.category_id=c.id "
+                "WHERE t.session_id=? AND t.status='valid' AND json_extract(c.path,'$[0]')='人物'", (session_id,))]
+
+    def list_current_tags(
+        self, session_id: str, *, person_users: Optional[List[str]] = None, limit: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
         with self._connect() as connection:
             self._expire_manual_activity(connection, time.time(), session_id)
             result = []
-            for row in connection.execute("SELECT t.*,c.path FROM tags t JOIN categories c ON c.id=t.category_id "
-                                          "WHERE t.session_id=? AND t.status NOT IN ('superseded','deleted') ORDER BY t.created_at DESC", (session_id,)):
+            query = ("SELECT t.*,c.path FROM tags t JOIN categories c ON c.id=t.category_id "
+                     "WHERE t.session_id=? AND t.status NOT IN ('superseded','deleted')")
+            parameters: List[Any] = [session_id]
+            if person_users is not None:
+                query += (" AND t.status='valid' AND json_extract(c.path,'$[0]')='人物' "
+                          "AND json_extract(c.path,'$[1]') IN (SELECT value FROM json_each(?))")
+                parameters.append(json.dumps(person_users))
+            query += " ORDER BY t.created_at DESC"
+            if limit is not None:
+                query += " LIMIT ?"
+                parameters.append(limit)
+            for row in connection.execute(query, parameters):
                 item = dict(row)
                 item["category_path"] = json.loads(item.pop("path"))
                 item["evidence"] = [dict(source) for source in connection.execute(
@@ -675,8 +935,36 @@ class TagMemoryStore:
             if conflict["resolved_at"] != expected_resolved_at:
                 raise StaleTagConflict("冲突已有新的人工裁决，请刷新后重试")
             old_id, new_id = conflict["old_tag_id"], conflict["new_tag_id"]
-            statuses = {old_id: "superseded", new_id: "valid"} if decision == "replace_old" else (
-                {old_id: "valid", new_id: "superseded"} if decision == "keep_old" else {old_id: "disputed", new_id: "disputed"})
+            related = [dict(row) for row in connection.execute(
+                "SELECT * FROM tag_conflicts WHERE session_id=? AND batch_id=?", (session_id, conflict["batch_id"]))]
+            # 人工修改一个标签对时重新聚合它的整组关系，不能让其它合法裁决失效。
+            component = []
+            ids = {old_id, new_id}
+            while True:
+                matched = [row for row in related if row["old_tag_id"] in ids or row["new_tag_id"] in ids]
+                if not matched:
+                    break
+                for row in matched:
+                    related.remove(row)
+                    component.append(row)
+                    ids.update((row["old_tag_id"], row["new_tag_id"]))
+            if None in ids:
+                raise ValueError("冲突标签已清理，不能覆盖历史裁决")
+            new_indices = {value: index for index, value in enumerate(sorted({row["new_tag_id"] for row in component}))}
+            decisions = [{"new_index": new_indices[row["new_tag_id"]], "old_tag_id": row["old_tag_id"],
+                          "decision": decision if row["id"] == conflict_id else row["decision"],
+                          "reason": reason if row["id"] == conflict_id else row["reason"]} for row in component]
+            new_statuses = validate_conflict_pairs(decisions, len(new_indices))
+            statuses = {tag_id: new_statuses[index] for tag_id, index in new_indices.items()}
+            rank = {"valid": 0, "disputed": 1, "superseded": 2}
+            for row, item in zip(component, decisions, strict=True):
+                status = new_statuses[item["new_index"]]
+                original = json.loads(row["evidence"]).get("old_status_before", "valid")
+                old_status = ("superseded" if status == "valid" else "disputed" if status == "disputed" else original
+                              ) if item["decision"] == "replace_old" else (
+                    "valid" if item["decision"] == "keep_old" else "disputed" if status != "superseded" else original)
+                prior = statuses.get(row["old_tag_id"], old_status)
+                statuses[row["old_tag_id"]] = max((prior, old_status), key=rank.__getitem__)
             for tag_id, status in statuses.items():
                 before = connection.execute("SELECT * FROM tags WHERE session_id=? AND id=? AND status!='deleted'",
                                             (session_id, tag_id)).fetchone()
@@ -685,6 +973,12 @@ class TagMemoryStore:
                 connection.execute("UPDATE tags SET status=?,is_active=0,auto_active=0,manual_active_until=NULL,last_active_at=?,"
                                    "revision=revision+1 WHERE id=?", (status, time.time(), tag_id))
                 self._audit_tag_change(connection, before, "人工冲突裁决：" + reason.strip())
+            for row in component:
+                evidence = json.loads(row["evidence"])
+                evidence["applied_old_status"] = statuses[row["old_tag_id"]]
+                evidence["applied_new_status"] = statuses[row["new_tag_id"]]
+                connection.execute("UPDATE tag_conflicts SET evidence=? WHERE id=?",
+                                   (json.dumps(evidence, ensure_ascii=False), row["id"]))
             connection.execute("UPDATE tag_conflicts SET decision=?,reason=?,manual_decision=?,manual_reason=?,resolved_at=? WHERE id=?",
                                (decision, reason.strip(), decision, reason.strip(), time.time(), conflict_id))
             connection.execute("UPDATE topics SET is_active=0 WHERE session_id=? AND id IN "
@@ -803,8 +1097,8 @@ class TagMemoryStore:
                 return {"ran": False, "deleted_tags": 0, "deleted_topics": 0, "archived_batches": 0}
             cutoff = timestamp - retention_days * DAY_SECONDS
             deleted = connection.execute(
+                # 失败任务仅保护引用的上一批，不无限保护该群全部标签；冲突快照失效会重新检查。
                 "DELETE FROM tags WHERE is_active=0 AND auto_active=0 AND requires_long_term=0 AND last_active_at<=? "
-                "AND session_id NOT IN (SELECT session_id FROM extraction_jobs) "
                 "AND batch_id NOT IN (SELECT json_extract(payload,'$.previous_batch_id') FROM extraction_jobs "
                 "WHERE json_extract(payload,'$.previous_batch_id') IS NOT NULL)", (cutoff,)
             ).rowcount

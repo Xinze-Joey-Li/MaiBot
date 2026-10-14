@@ -12,6 +12,7 @@ from src.common.database.database import get_db_session
 from src.common.database.database_model import ChatSession
 from src.config.config import global_config
 from src.services.tag_memory_service import tag_memory_service
+from src.services.tag_extraction_service import TagExtractionService
 from src.services.tag_memory_store import StaleTagConflict, TagMemoryStore
 from src.webui.dependencies import require_auth
 
@@ -88,7 +89,9 @@ def overview(session_id: str):
     store, scope = scoped_store(session_id)
     config = global_config.chat.tag_memory
     return {"tree": store.get_tree(scope), "topics": store.get_topics(scope), "conflicts": store.get_conflicts(scope),
-            "rules": {"batch_size": config.batch_size, "max_wait_seconds": config.max_wait_seconds,
+            "extraction": store.extraction_status(scope),
+            "rules": {"batch_size": TagExtractionService.batch_sizes_for_sessions(config.batch_rules).get(scope, config.batch_size),
+                      "max_wait_seconds": config.max_wait_seconds,
                       "retention_days": config.retention_days, "cleanup_interval_days": config.cleanup_interval_days}}
 
 
@@ -130,3 +133,24 @@ def update_topic(session_id: str, topic_id: str, body: TopicUpdate):
 def batch_context(session_id: str, batch_id: str):
     store, scope = scoped_store(session_id)
     return {"batches": store.get_batch_context(scope, batch_id)}
+
+
+@router.post("/{session_id}/extraction/{job_id}/retry")
+def retry_extraction(session_id: str, job_id: str):
+    store, scope = scoped_store(session_id)
+    perform(store.retry_extraction_job, scope, job_id)
+    # WebUI 与 bot 分属不同事件循环；由 bot 的定期扫描拾取，不能直接 set 它的 Event。
+    return {"success": True}
+
+
+@router.get("/{session_id}/extraction-jobs")
+def extraction_jobs(session_id: str):
+    store, scope = scoped_store(session_id)
+    return {"jobs": perform(store.list_extraction_jobs, scope)}
+
+
+@router.post("/{session_id}/extraction-jobs/{job_id}/retry")
+def retry_extraction_job(session_id: str, job_id: str):
+    store, scope = scoped_store(session_id)
+    perform(store.retry_extraction_job, scope, job_id)
+    return {"success": True}

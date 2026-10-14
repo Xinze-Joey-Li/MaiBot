@@ -139,20 +139,20 @@ async def test_host_service_passes_shared_memory_session_ids(monkeypatch: pytest
 
 
 @pytest.mark.asyncio
-async def test_host_service_global_memory_sharing_uses_global_search_scope(
+async def test_host_service_global_switch_cannot_remove_business_chat_scope(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_kernel = _FakeKernel()
     service = _ready_service(fake_kernel)
 
-    def fail_shared_group_lookup(chat_id: str) -> set[str]:
-        raise AssertionError(f"全局共享开启时不应解析共享记忆组: {chat_id}")
+    def shared_group_lookup(chat_id: str) -> set[str]:
+        return {chat_id, "explicit-shared"}
 
     monkeypatch.setattr(service, "is_enabled", lambda: True)
     monkeypatch.setattr(service, "_read_config", lambda: {"global_memory_sharing_enabled": True})
     monkeypatch.setattr(
         "src.A_memorix.host_service.AMemorixConfigUtils.get_shared_memory_session_ids",
-        fail_shared_group_lookup,
+        shared_group_lookup,
     )
 
     await service.invoke(
@@ -170,10 +170,37 @@ async def test_host_service_global_memory_sharing_uses_global_search_scope(
 
     assert len(fake_kernel.requests) == 1
     request = fake_kernel.requests[0]
-    assert request.chat_id == ""
-    assert tuple(request.shared_chat_ids) == ()
+    assert request.chat_id == "session-a"
+    assert set(request.shared_chat_ids) == {"session-a", "explicit-shared"}
     assert request.group_id == "group-a"
     assert request.user_id == "user-a"
+
+
+@pytest.mark.asyncio
+async def test_business_profile_and_missing_chat_scope_are_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = _ready_service(_FakeKernel())
+    monkeypatch.setattr(service, "is_enabled", lambda: True)
+    for component, payload in (
+        ("get_person_profile", {"person_id": "person", "chat_id": "session-a"}),
+        ("memory_profile_admin", {"action": "query", "person_id": "person", "chat_id": "session-a"}),
+        ("search_memory", {"query": "偏好", "group_id": "group-a"}),
+    ):
+        result = await service.invoke(component, payload)
+        assert result["success"] is False
+
+
+@pytest.mark.asyncio
+async def test_business_image_cannot_expand_chat_ids(monkeypatch: pytest.MonkeyPatch) -> None:
+    class ImageKernel(_FakeKernel):
+        async def image_memory(self, *, action: str, **kwargs):
+            return kwargs
+
+    service = _ready_service(ImageKernel())
+    monkeypatch.setattr(service, "is_enabled", lambda: True)
+    monkeypatch.setattr(service, "_read_config", lambda: {"global_memory_sharing_enabled": True})
+    monkeypatch.setattr("src.A_memorix.host_service.AMemorixConfigUtils.get_shared_memory_session_ids", lambda sid: {sid})
+    result = await service.invoke("image_memory", {"action": "search", "chat_id": "session-a", "chat_ids": ["foreign"]})
+    assert set(result["chat_ids"]) == {"session-a"}
 
 
 @pytest.mark.asyncio

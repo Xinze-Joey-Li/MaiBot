@@ -107,6 +107,15 @@ class BotConfig(ConfigBase):
     __ui_label__ = "基础"
     __ui_order__ = 10
 
+    owner_qq: str = Field(
+        default="100000001", pattern=r"^[1-9][0-9]{4,19}$",
+        json_schema_extra={"label": {"zh_CN": "主人 QQ 号", "en_US": "Owner QQ", "ja_JP": "主人 QQ"},
+                           "x-widget": "input"},
+    )
+    owner_group_commands_enabled: bool = Field(
+        default=True, description="允许真实主人通过群聊 @ 的 /主人 命令查看公开人格和切换已配置模型。",
+    )
+
     platform: str = Field(
         default="",
         json_schema_extra={
@@ -494,6 +503,11 @@ class ChatReplyTimingConfig(ConfigBase):
     __ui_label__ = "什么时候发言"
     __ui_icon__ = "activity"
 
+    planner_lifecycle_mode: Literal["legacy", "observe", "optimized"] = Field(
+        default="legacy",
+        description="Planner 生命周期：legacy 原行为；observe 仅记录本地结束判断；optimized 完成动作后本地结束，新消息重新门控。",
+    )
+
     talk_value: float = Field(
         default=1,
         ge=0,
@@ -571,7 +585,7 @@ class ChatReplyTimingConfig(ConfigBase):
             "x-option-descriptions": REPLY_TRIGGER_MODE_OPTION_DESCRIPTIONS,
         },
     )
-    """控制新消息何时进入 Planner。"""
+    """控制新消息何时进入 Planner。兼容默认 frequency；QQAgent 权重模式需显式选择 dynamic，启动日志显示实际模式。"""
 
     planner_interrupt_max_consecutive_count: int = Field(
         default=0,
@@ -769,6 +783,14 @@ class ChatReplyStyleConfig(ConfigBase):
     """给指定群聊或私聊额外补充聊天要求；有特殊群规或语气要求时再加。"""
 
 
+class ChatTagBatchRule(ConfigBase):
+    """按平台和群目标匹配真实聊天流的标签批量设置。"""
+
+    platform: str = Field(default="qq", min_length=1)
+    item_id: str = Field(default="", min_length=1)
+    batch_size: int = Field(default=50, ge=1, le=200)
+
+
 class ChatTagMemoryConfig(ConfigBase):
     """独立树状标签与周期清理；不控制现有人物画像。"""
 
@@ -786,8 +808,13 @@ class ChatTagMemoryConfig(ConfigBase):
     cleanup_interval_days: int = Field(default=14, ge=1)
     """实际清理间隔天数，成功清理时间持久化保存，重启不会重置周期。"""
 
-    batch_size: int = Field(default=25, ge=1)
+    batch_size: int = Field(default=30, ge=1)
     """每累计多少条有效群文本统一提取标签，机器人沉默时同样执行。"""
+
+    batch_rules: List[ChatTagBatchRule] = Field(default_factory=lambda: [
+        ChatTagBatchRule(platform="qq", item_id="103844496", batch_size=50),
+    ])
+    """高频群批量覆盖，例如 platform=qq、item_id=103844496、batch_size=50；未匹配群沿用默认阈值。"""
 
     max_wait_seconds: int = Field(default=1800, ge=1)
     """从上一次成功提交起计时，每次提交重置；首次从首条有效文本起计时，有新消息才定时提取。"""
@@ -1518,7 +1545,7 @@ class AMemorixIntegrationConfig(ConfigBase):
             "x-widget": "switch",
         },
     )
-    """旧群摘要写回开关；启用 chat.tag_memory 时停用，改为独立的 25 条/30 分钟标签提取。"""
+    """旧群摘要写回开关；启用 chat.tag_memory 时停用，改为独立的 30 条/30 分钟标签提取。"""
 
     chat_summary_writeback_message_threshold: int = Field(
         default=36,

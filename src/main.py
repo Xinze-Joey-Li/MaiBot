@@ -104,6 +104,9 @@ class MainSystem:
     async def initialize(self) -> None:
         """初始化系统组件"""
         logger.info(t("startup.waking_up", nickname=global_config.bot.nickname))
+        from src.maisaka.mode_policy import log_reply_trigger_mode
+
+        log_reply_trigger_mode()
 
         try:
             from src.services.tool_record_cleanup_service import run_startup_tool_record_vacuum_if_needed

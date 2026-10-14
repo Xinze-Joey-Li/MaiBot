@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Sequence
 
+import asyncio
+
 from src.chat.message_receive.message import SessionMessage
 from src.A_memorix.core.utils.profile_text import build_profile_injection_text
 from src.common.data_models.message_component_data_model import AtComponent, ReplyComponent
@@ -234,7 +236,7 @@ async def build_person_profile_injection_messages(
         max_profiles = int(getattr(integration_config, "person_profile_injection_max_profiles", 3) or 3)
     except (TypeError, ValueError):
         max_profiles = 3
-    candidates = collect_person_profile_candidates(
+    candidates = await asyncio.to_thread(collect_person_profile_candidates,
         anchor_message,
         pending_messages,
         max_profiles=max(1, max_profiles),
@@ -252,6 +254,7 @@ async def build_person_profile_injection_messages(
         try:
             payload = await memory_service.profile_admin(
                 action="query",
+                chat_id=anchor_message.session_id,
                 person_id=candidate.person_id,
                 limit=PROFILE_QUERY_LIMIT,
                 context_text=context_text,

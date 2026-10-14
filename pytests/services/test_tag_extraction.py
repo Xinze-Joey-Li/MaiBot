@@ -79,6 +79,54 @@ class ExtractionQueueTest(TestCase):
         self.assertEqual(len(json.loads(job["payload"])["messages"]), 25)
         self.assertEqual(self.store.scanner_position(), 25)
 
+    def test_high_traffic_group_uses_fifty_without_changing_other_group(self):
+        self.store.enqueue_page(messages(49, scope="busy") + messages(25), 74)
+        job = self.store.next_extraction_job(batch_sizes={"busy": 50}, claim=True)
+        self.assertEqual(job["session_id"], "group")
+        self.assertIsNone(self.store.next_extraction_job(batch_sizes={"busy": 50}, claim=True))
+        self.store.enqueue_page(messages(1, scope="busy", start=50), 75)
+        job = self.store.next_extraction_job(batch_sizes={"busy": 50}, claim=True)
+        self.assertEqual(job["session_id"], "busy")
+        self.assertEqual(len(json.loads(job["payload"])["messages"]), 50)
+
+    def test_failed_group_does_not_block_ready_group_even_after_retry_is_due(self):
+        self.store.enqueue_page(messages(), 25)
+        with patch("src.services.tag_memory_store.time.time", return_value=100):
+            job = self.store.next_extraction_job(claim=True)
+            self.store.fail_extraction_job(job["id"], "model failed", invalid_output=True)
+        self.store.enqueue_page(messages(scope="other"), 50)
+        with patch("src.services.tag_memory_store.time.time", return_value=200):
+            other = self.store.next_extraction_job(claim=True)
+        self.assertEqual(other["session_id"], "other")
+        self.assertEqual(self.store.extraction_status("group")["pending_messages"], 25)
+
+    def test_lease_survives_restart_and_foreign_retry_is_rejected(self):
+        self.store.enqueue_page(messages(), 25)
+        with patch("src.services.tag_memory_store.time.time", return_value=100):
+            job = self.store.next_extraction_job(claim=True)
+            restarted = TagMemoryStore(self.store.db_path)
+            restarted.initialize()
+            self.assertIsNone(restarted.next_extraction_job(claim=True))
+            with self.assertRaises(ValueError):
+                restarted.retry_extraction_job("other", job["id"])
+            with self.assertRaises(ValueError):
+                restarted.retry_extraction_job("group", job["id"])
+        with patch("src.services.tag_memory_store.time.time", return_value=341):
+            recovered = restarted.next_extraction_job(claim=True)
+        self.assertEqual(recovered["id"], job["id"])
+        self.assertEqual(recovered["payload"], job["payload"])
+
+    def test_two_group_high_volume_is_fair_and_keeps_messages_after_restart(self):
+        self.store.enqueue_page(messages(1000, scope="busy") + messages(25), 1025)
+        first = self.store.next_extraction_job(batch_sizes={"busy": 50}, claim=True)
+        second = self.store.next_extraction_job(batch_sizes={"busy": 50}, claim=True)
+        self.assertEqual({first["session_id"], second["session_id"]}, {"busy", "group"})
+        self.assertIsNone(self.store.next_extraction_job(batch_sizes={"busy": 50}, claim=True))
+        restarted = TagMemoryStore(self.store.db_path)
+        restarted.initialize()
+        self.assertEqual(restarted.extraction_status("busy")["pending_messages"], 1000)
+        self.assertEqual(restarted.extraction_status("group")["pending_messages"], 25)
+
     def test_half_hour_trigger_for_first_small_batch(self):
         self.store.enqueue_page(messages(1, timestamp=time.time() - 1801), 1)
         self.assertEqual(len(json.loads(self.store.next_extraction_job()["payload"])["messages"]), 1)
@@ -196,7 +244,7 @@ class ExtractionQueueTest(TestCase):
         with closing(sqlite3.connect(legacy_path)) as connection, connection:
             self.assertIn("auto_active", {row[1] for row in connection.execute("PRAGMA table_info(tags)")})
             self.assertIn("quote", {row[1] for row in connection.execute("PRAGMA table_info(tag_sources)")})
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 6)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 8)
 
     def test_scanner_keeps_short_and_mixed_text_but_excludes_bot_media_commands_and_private(self):
         class Text:
@@ -253,7 +301,7 @@ class ExtractionIntegrationTest(IsolatedAsyncioTestCase):
         self.service._store = self.store
         self.client = SimpleNamespace(generate_response=AsyncMock())
         self.conflict_client = SimpleNamespace(generate_response=AsyncMock(
-            return_value=SimpleNamespace(response='{"decisions":[]}')))
+            return_value=SimpleNamespace(prompt_tokens=0, completion_tokens=0, total_tokens=0, response='{"decisions":[]}')))
         self.factory = Mock(side_effect=lambda **kwargs: self.conflict_client
                             if kwargs["request_type"] == "qq_agent.tag_conflict" else self.client)
         self.modules = {
@@ -266,7 +314,7 @@ class ExtractionIntegrationTest(IsolatedAsyncioTestCase):
         return self.store.next_extraction_job()
 
     async def process(self, job, text):
-        self.client.generate_response.return_value = SimpleNamespace(response=text)
+        self.client.generate_response.return_value = SimpleNamespace(prompt_tokens=0, completion_tokens=0, total_tokens=0, response=text)
         with patch.dict("sys.modules", self.modules), patch.object(
             tag_memory_service, "_resolve_scope", return_value=("group", "测试群")
         ), patch.object(tag_memory_service, "_verify_sources"):
@@ -328,7 +376,7 @@ class ExtractionIntegrationTest(IsolatedAsyncioTestCase):
     async def test_conflict_decision_is_separate_cached_and_committed_atomically(self):
         await self.process(self.next_job(), output())
         old_id = self.store.list_current_tags("group")[0]["id"]
-        self.conflict_client.generate_response.return_value = SimpleNamespace(response=json.dumps({"decisions": [
+        self.conflict_client.generate_response.return_value = SimpleNamespace(prompt_tokens=0, completion_tokens=0, total_tokens=0, response=json.dumps({"decisions": [
             {"old_tag_id": old_id, "decision": "replace_old", "reason": "本人明确调整计划"}]}))
         job = self.next_job(start=26)
         with patch.object(self.store, "record_batch", side_effect=sqlite3.OperationalError("locked")):
@@ -346,13 +394,42 @@ class ExtractionIntegrationTest(IsolatedAsyncioTestCase):
 
     async def test_invalid_conflict_result_preserves_job_and_old_memory(self):
         await self.process(self.next_job(), output())
-        self.conflict_client.generate_response.return_value = SimpleNamespace(response='{"decisions":[{"old_tag_id":"foreign"}]}')
+        self.conflict_client.generate_response.return_value = SimpleNamespace(prompt_tokens=0, completion_tokens=0, total_tokens=0, response='{"decisions":[{"old_tag_id":"foreign"}]}')
         job = self.next_job(start=26)
         with self.assertRaises(ValueError):
             await self.process(job, output("m26"))
         self.assertEqual(len(self.store.list_current_tags("group")), 1)
         self.assertIsNotNone(self.store.next_extraction_job())
         self.assertEqual(self.store.get_conflicts("group"), [])
+
+    async def test_slow_group_does_not_stop_scanning_or_second_group(self):
+        started, finished, blocked = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        pages = [(messages(scope="slow"), 25, False), (messages(scope="other"), 50, False)]
+
+        async def process(job):
+            if job["session_id"] == "slow":
+                started.set()
+                await blocked.wait()
+            else:
+                finished.set()
+
+        modules = {
+            "src.config.config": SimpleNamespace(global_config=SimpleNamespace(chat=SimpleNamespace(
+                tag_memory=SimpleNamespace(enabled=True, batch_size=25, max_wait_seconds=1800, batch_rules=[])))),
+            "src.common.logger": SimpleNamespace(get_logger=lambda name: Mock()),
+        }
+        with patch.dict("sys.modules", modules), patch.object(self.service, "_process_job", side_effect=process), patch.object(
+            self.service, "_read_page", side_effect=lambda position: pages.pop(0) if pages else ([], 50, False)
+        ):
+            self.service._worker = asyncio.create_task(self.service._worker_loop())
+            try:
+                await asyncio.wait_for(started.wait(), 3)
+                self.service.notify_message_saved()
+                await asyncio.wait_for(finished.wait(), 3)
+                self.assertEqual(self.store.scanner_position(), 50)
+                self.assertFalse(blocked.is_set())
+            finally:
+                await self.service.shutdown()
 
     async def test_background_worker_automatically_extracts_twenty_five_messages(self):
         done = Event()
@@ -363,10 +440,10 @@ class ExtractionIntegrationTest(IsolatedAsyncioTestCase):
             done.set()
             return result
 
-        self.client.generate_response.return_value = SimpleNamespace(response=output())
+        self.client.generate_response.return_value = SimpleNamespace(prompt_tokens=0, completion_tokens=0, total_tokens=0, response=output())
         self.modules.update({
             "src.config.config": SimpleNamespace(global_config=SimpleNamespace(chat=SimpleNamespace(
-                tag_memory=SimpleNamespace(enabled=True, batch_size=25, max_wait_seconds=1800)
+                tag_memory=SimpleNamespace(enabled=True, batch_size=25, max_wait_seconds=1800, batch_rules=[])
             ))),
             "src.common.logger": SimpleNamespace(get_logger=lambda name: Mock()),
         })
@@ -376,7 +453,7 @@ class ExtractionIntegrationTest(IsolatedAsyncioTestCase):
             tag_memory_service, "_verify_sources"
         ), patch.object(self.service, "_latest_message_id", return_value=0), patch.object(
             self.service, "_read_page", side_effect=[(messages(), 25, False), ([], 25, False)]
-        ), patch.object(self.store, "record_batch", side_effect=record):
+        ), patch.object(self.service, "batch_sizes_for_sessions", return_value={}), patch.object(self.store, "record_batch", side_effect=record):
             try:
                 await self.service.start()
                 self.service.notify_message_saved()
