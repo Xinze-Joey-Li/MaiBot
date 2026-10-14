@@ -71,7 +71,7 @@ MaiSaka 不仅仅是一个机器人，不仅仅是一个可以帮你完成任务
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="depends-data/readme/sec-install-night.svg"><img src="depends-data/readme/sec-install-day.svg" alt="安装 · INSTALL" width="100%"></picture>
 
-**QQ Agent 个人迭代：v0.2.4（优化 Planner 生命周期与主人权限）** · 基于 MaiBot v1.3.5，开发分支 `feature/qq-agent`，版本标签 [`v0.2.4`](https://github.com/Xinze-Joey-Li/MaiBot/tree/v0.2.4)。
+**QQ Agent 个人迭代：v0.2.5（添加更多表情）** · 基于 MaiBot v1.3.5，开发分支 `feature/qq-agent`，版本标签 [`v0.2.5`](https://github.com/Xinze-Joey-Li/MaiBot/tree/v0.2.5)。
 
 **最新版本: v1.3.5**
 

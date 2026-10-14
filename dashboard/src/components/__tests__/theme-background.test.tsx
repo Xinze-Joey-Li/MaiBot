@@ -183,10 +183,21 @@ describe('ThemeProvider', () => {
     vi.unstubAllGlobals()
   })
 
+  it('新用户默认浅色，已有深色偏好保留', () => {
+    darkMode = true
+    const first = render(<ThemeProvider><ThemeProbe /></ThemeProvider>)
+    expect(screen.getByTestId('theme-state')).toHaveTextContent('light:light:modern')
+    first.unmount()
+    localStorage.setItem('maibot-theme-mode', 'dark')
+    render(<ThemeProvider><ThemeProbe /></ThemeProvider>)
+    expect(screen.getByTestId('theme-state')).toHaveTextContent('dark:dark:modern')
+    expect(localStorage.getItem('maibot-theme-mode')).toBe('dark')
+  })
+
   it('解析系统主题、应用主题流水线并持久化显式主题模式', () => {
     darkMode = true
     render(
-      <ThemeProvider>
+      <ThemeProvider defaultTheme="system">
         <ThemeProbe />
       </ThemeProvider>
     )
@@ -207,7 +218,7 @@ describe('ThemeProvider', () => {
 
   it('系统配色变化时重新解析 system 模式', () => {
     render(
-      <ThemeProvider>
+      <ThemeProvider defaultTheme="system">
         <ThemeProbe />
       </ThemeProvider>
     )
@@ -225,7 +236,7 @@ describe('ThemeProvider', () => {
   it('读取远端 WebUI 风格，并在本地切换时写回数值协议', async () => {
     mocks.getBotConfig.mockResolvedValue({ webui: { webui_style: 1 } })
     render(
-      <ThemeProvider>
+      <ThemeProvider defaultTheme="system">
         <ThemeProbe />
       </ThemeProvider>
     )
@@ -250,7 +261,7 @@ describe('ThemeProvider', () => {
       .mockReturnValueOnce(makeThemeConfig({ dashboardStyle: 'future-retro' }))
       .mockReturnValueOnce(makeThemeConfig({ dashboardStyle: 'modern' }))
     render(
-      <ThemeProvider>
+      <ThemeProvider defaultTheme="system">
         <ThemeProbe />
       </ThemeProvider>
     )
@@ -269,7 +280,7 @@ describe('ThemeProvider', () => {
   it('认证页跳过远端读取和写入', async () => {
     window.history.replaceState(null, '', '/auth')
     render(
-      <ThemeProvider>
+      <ThemeProvider defaultTheme="system">
         <ThemeProbe />
       </ThemeProvider>
     )

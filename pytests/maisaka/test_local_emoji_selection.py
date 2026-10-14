@@ -47,3 +47,17 @@ def test_selection_threshold_singleton_and_group_isolation(tmp_path, monkeypatch
 def test_invalid_quality_is_not_silently_accepted():
     with pytest.raises(ValueError):
         score(metadata={"quality": 2})
+
+
+def test_bundled_metadata_and_local_override(tmp_path, monkeypatch):
+    bundled = tmp_path / "bundled.json"
+    local = tmp_path / "local.json"
+    bundled.write_text('{"a":{"quality":1,"keywords":["游戏"]}}', encoding="utf-8")
+    monkeypatch.setattr(selection, "BUNDLED_METADATA_PATH", bundled)
+    monkeypatch.setattr(selection, "METADATA_PATH", local)
+    assert selection.load_metadata()["a"]["quality"] == 1
+    local.write_text('{"a":{"quality":0.5}}', encoding="utf-8")
+    assert selection.load_metadata()["a"] == {"quality":0.5,"keywords":["游戏"]}
+    local.write_text('[]', encoding="utf-8")
+    with pytest.raises(ValueError):
+        selection.load_metadata()

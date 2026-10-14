@@ -7,6 +7,8 @@ from typing import Any, Dict, Tuple
 
 import asyncio
 import gzip
+import hashlib
+import json
 import mimetypes
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -90,7 +92,7 @@ def _resolve_static_cache_control(static_path: Path, file_path: Path) -> str | N
     if relative_parts[0] == "assets":
         # 构建产物文件名带内容哈希，内容变化时文件名必然变化，可以长期缓存
         return "public, max-age=31536000, immutable"
-    if file_path.suffix == ".html":
+    if file_path.suffix == ".html" or file_path.name == "dashboard-build.json":
         # 入口页每次都要校验，保证更新 WebUI 后立即加载到新的资源文件名
         return "no-cache"
     return None
@@ -132,7 +134,38 @@ def _resolve_statistics_report_path() -> Path:
 
 
 def _is_local_dashboard_enabled() -> bool:
-    return getenv(_LOCAL_DASHBOARD_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
+    # 本项目构建优先；显式关闭仍可恢复 pip 包，兼容只安装后端的部署。
+    return getenv(_LOCAL_DASHBOARD_ENV, "auto").strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _dashboard_source_fingerprint(root: Path) -> str:
+    paths = []
+    for folder in ("src", "public"):
+        paths.extend(p for p in (root / folder).rglob("*") if p.is_file())
+    for name in ("package.json", "bun.lock", "index.html", "vite.config.ts", "app-version.ts",
+                 "tailwind.config.js", "tsconfig.app.json", "tsconfig.node.json", "tsconfig.json"):
+        if (root / name).is_file():
+            paths.append(root / name)
+    digest = hashlib.sha256()
+    for path in sorted(paths, key=lambda p: p.relative_to(root).as_posix()):
+        digest.update(path.relative_to(root).as_posix().encode())
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _log_local_dashboard_build(static_path: Path) -> None:
+    manifest = static_path / "dashboard-build.json"
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        current = _dashboard_source_fingerprint(static_path.parent)
+        if data.get("sourceFingerprint") != current:
+            logger.warning("Dashboard 源码与构建不一致，需要重新构建：cd dashboard && bun run build")
+        else:
+            logger.info(f"Dashboard 构建已匹配源码: built_at={data.get('builtAt')} fingerprint={current[:12]}")
+    except (OSError, ValueError):
+        logger.warning("Dashboard 缺少有效构建指纹，请重新构建：cd dashboard && bun run build")
 
 
 def _validate_static_path(static_path: Path | None) -> Tuple[str, Dict[str, Any]] | None:
@@ -344,7 +377,10 @@ def _resolve_static_path() -> Path | None:
     if _is_local_dashboard_enabled():
         static_path = _get_project_root() / "dashboard" / "dist"
         if static_path.is_dir() and (static_path / "index.html").exists():
+            logger.info(f"Dashboard 资源: source=local path={static_path.resolve()} env={getenv(_LOCAL_DASHBOARD_ENV, 'auto')}")
+            _log_local_dashboard_build(static_path)
             return static_path
+        logger.warning(f"本地 Dashboard 未构建，尝试 pip 包：path={static_path.resolve()} command=cd dashboard && bun run build")
 
     try:
         module = import_module("maibot_dashboard")
@@ -352,6 +388,7 @@ def _resolve_static_path() -> Path | None:
         if callable(get_dist_path):
             package_path = get_dist_path()
             if isinstance(package_path, Path) and package_path.exists():
+                logger.info(f"Dashboard 资源: source=pip package={_DASHBOARD_PACKAGE_NAME} path={package_path.resolve()}")
                 return package_path
     except Exception:
         pass

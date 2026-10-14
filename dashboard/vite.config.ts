@@ -2,6 +2,8 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig, type Plugin } from 'vite'
 import path from 'path'
+import { createHash } from 'node:crypto'
+import { readdirSync, readFileSync, existsSync } from 'node:fs'
 
 import { dashboardVersionDefine } from './app-version'
 
@@ -27,9 +29,40 @@ function watchErrorGuard(): Plugin {
   }
 }
 
+function buildFingerprint(): Plugin {
+  return {
+    name: 'dashboard-build-fingerprint',
+    generateBundle() {
+      const root = process.cwd()
+      const paths: string[] = []
+      const walk = (folder: string) => {
+        if (!existsSync(path.join(root, folder))) return
+        for (const entry of readdirSync(path.join(root, folder), { withFileTypes: true })) {
+          const relative = folder + '/' + entry.name
+          if (entry.isDirectory()) walk(relative)
+          else if (entry.isFile()) paths.push(relative)
+        }
+      }
+      walk('src')
+      walk('public')
+      for (const name of ['package.json', 'bun.lock', 'index.html', 'vite.config.ts', 'app-version.ts',
+        'tailwind.config.js', 'tsconfig.app.json', 'tsconfig.node.json', 'tsconfig.json']) {
+        if (existsSync(path.join(root, name))) paths.push(name)
+      }
+      const hash = createHash('sha256')
+      for (const name of paths.sort()) {
+        hash.update(name).update('\0').update(readFileSync(path.join(root, name))).update('\0')
+      }
+      this.emitFile({ type: 'asset', fileName: 'dashboard-build.json', source: JSON.stringify({
+        builtAt: new Date().toISOString(), sourceFingerprint: hash.digest('hex'),
+      }) })
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [tailwindcss(), react(), watchErrorGuard()],
+  plugins: [tailwindcss(), react(), watchErrorGuard(), buildFingerprint()],
   define: dashboardVersionDefine,
   server: {
     host: '127.0.0.1',

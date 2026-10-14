@@ -10,7 +10,24 @@ import time
 
 DATA_ROOT = Path(__file__).resolve().parents[2] / "data"
 METADATA_PATH = DATA_ROOT / "emoji_selection_metadata.json"
+BUNDLED_METADATA_PATH = DATA_ROOT.parent / "resources" / "qq-agent" / "emoji" / "metadata.json"
 HISTORY_PATH = DATA_ROOT / "emoji_selection_history.db"
+
+
+def load_metadata() -> Dict[str, Any]:
+    """读取随仓库分发的评分，并按哈希用本地自定义条目覆盖。"""
+    metadata: Dict[str, Any] = {}
+    for path in (BUNDLED_METADATA_PATH, METADATA_PATH):
+        if not path.exists():
+            continue
+        values = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(values, dict):
+            raise ValueError("表情评分元数据必须为按哈希索引的对象")
+        for file_hash, entry in values.items():
+            if not isinstance(entry, dict):
+                raise ValueError("表情评分条目必须为对象")
+            metadata[file_hash] = {**metadata.get(file_hash, {}), **entry}
+    return metadata
 
 
 def _connect() -> sqlite3.Connection:
@@ -79,9 +96,7 @@ def select_candidate(session_id: str, tag: str, candidates: List[Any], context: 
     from .emoji_manager import _get_emoji_emotions
     from src.common.logger import get_logger
 
-    metadata = json.loads(METADATA_PATH.read_text(encoding="utf-8")) if METADATA_PATH.exists() else {}
-    if not isinstance(metadata, dict):
-        raise ValueError("表情评分元数据必须为按哈希索引的对象")
+    metadata = load_metadata()
     now = time.time()
     connection = _connect()
     try:

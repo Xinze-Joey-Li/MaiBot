@@ -103,7 +103,7 @@ def test_resolve_static_path_prefers_installed_dashboard_package(monkeypatch, tm
     assert resolved_path == package_dist
 
 
-def test_resolve_static_path_ignores_dashboard_dist_when_package_is_unavailable(monkeypatch, tmp_path) -> None:
+def test_resolve_static_path_uses_local_dashboard_without_package(monkeypatch, tmp_path) -> None:
     dashboard_dist = tmp_path / "dashboard" / "dist"
     dashboard_dist.mkdir(parents=True)
     (dashboard_dist / "index.html").write_text("<html></html>", encoding="utf-8")
@@ -113,7 +113,54 @@ def test_resolve_static_path_ignores_dashboard_dist_when_package_is_unavailable(
     with patch.object(webui_app, "import_module", side_effect=ImportError):
         resolved_path = webui_app._resolve_static_path()
 
-    assert resolved_path is None
+    assert resolved_path == dashboard_dist
+
+
+def test_local_dashboard_default_and_explicit_package_override(monkeypatch, tmp_path) -> None:
+    local = tmp_path / "dashboard" / "dist"
+    local.mkdir(parents=True)
+    (local / "index.html").write_text("local", encoding="utf-8")
+    package = tmp_path / "package"
+    package.mkdir()
+    monkeypatch.setattr(webui_app, "_get_project_root", lambda: tmp_path)
+    monkeypatch.delenv("MAIBOT_WEBUI_USE_LOCAL_DASHBOARD", raising=False)
+    assert webui_app._resolve_static_path() == local
+    monkeypatch.setenv("MAIBOT_WEBUI_USE_LOCAL_DASHBOARD", "0")
+    with patch.object(webui_app, "import_module", return_value=type("Dashboard", (), {
+        "get_dist_path": staticmethod(lambda: package),
+    })):
+        assert webui_app._resolve_static_path() == package
+
+
+def test_build_fingerprint_changes_when_source_changes(tmp_path) -> None:
+    source = tmp_path / "src"
+    source.mkdir()
+    path = source / "main.tsx"
+    path.write_text("light", encoding="utf-8")
+    before = webui_app._dashboard_source_fingerprint(tmp_path)
+    path.write_text("dark", encoding="utf-8")
+    assert webui_app._dashboard_source_fingerprint(tmp_path) != before
+
+
+def test_build_manifest_reports_stale_source(tmp_path) -> None:
+    import json
+
+    source = tmp_path / "src"
+    source.mkdir()
+    path = source / "main.tsx"
+    path.write_text("light", encoding="utf-8")
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "dashboard-build.json").write_text(json.dumps({
+        "sourceFingerprint": webui_app._dashboard_source_fingerprint(tmp_path),
+        "builtAt": "test",
+    }), encoding="utf-8")
+    with patch.object(webui_app.logger, "warning") as warning:
+        webui_app._log_local_dashboard_build(dist)
+        warning.assert_not_called()
+        path.write_text("changed", encoding="utf-8")
+        webui_app._log_local_dashboard_build(dist)
+        warning.assert_called_once()
 
 
 def test_resolve_static_path_uses_package_even_when_dashboard_dist_exists(monkeypatch, tmp_path) -> None:

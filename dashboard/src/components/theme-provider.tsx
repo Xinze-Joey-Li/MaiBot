@@ -52,11 +52,11 @@ function shouldSyncRemoteWebUIStyle(): boolean {
 
 export function ThemeProvider({
   children,
-  defaultTheme = 'system',
+  defaultTheme = 'light',
 }: ThemeProviderProps) {
   const [themeMode, setThemeMode] = useState<Theme>(() => {
     const saved = localStorage.getItem(THEME_STORAGE_KEYS.MODE) as Theme | null
-    return saved || defaultTheme
+    return saved === 'light' || saved === 'dark' || saved === 'system' ? saved : defaultTheme
   })
   const [themeConfig, setThemeConfig] = useState<UserThemeConfig>(() => loadThemeConfig())
   const [systemThemeTick, setSystemThemeTick] = useState(0)

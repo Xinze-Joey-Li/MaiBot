@@ -2,7 +2,7 @@
 
 日期：2026-10-13。分支 feature/qq-agent。机器人尚未启动，无真实 QQ 权重测试结果。
 
-## 当前本地运行设置
+## 当时本地测试设置（历史记录）
 
 - config/bot_config.toml：旧 `reply_trigger_mode="frequency"` 行已注释，实际值为 `dynamic`。
 - 群聊 `talk_value=0.5`；私聊 `private_talk_value=1`。时间段规则未启用。
@@ -29,3 +29,11 @@
 拟合的 recent_self_ratio 系数为正，不能把它当成刚回复后冷却；门控的一小时额度反馈可能收紧后续进入 Planner，但不在已启动回合内额外重新门控每次工具调用。
 
 首次启动可能出现旧数据回顾与记忆相关报错，应与新消息权重结果分开记录。尚未验证真实 QQ、运行窗口效果或重启后的完整集成。本次代码随 v0.2.0 发布，备注“上线回复权重模型”；实际 bot_config.toml 被 Git 忽略，不包含在发布中。其他部署需自行将群聊 talk_value 设为 0.5、reply_trigger_mode 设为 dynamic；不要上传带账号或密钥的实际配置。
+
+## 2026-10-14 配置与调用链审查
+
+仓库正式兼容默认值仍为 `frequency`，保留显式 `frequency`、显式 `dynamic` 和旧配置缺少该字段时的升级行为；不会在升级时强制切换权重模式。QQAgent 权重测试及希望采用权重的新部署应显式选择 `dynamic`。此默认选择由既有部署说明及兼容要求确认，不能据此推断用户实际配置错误。
+
+本次只读核实 `G:\QQbot\MaiBot\config\bot_config.toml`：实际字段为 `dynamic`、群聊 `talk_value=0.5`；这证明文件设置，不代表已启动服务的现场行为。未修改或上传该实际配置。
+
+启动和每个会话运行时均输出 `回复触发模式: mode=... 权重评分=... 动态门控=...`。动态分支由 `MessageTurnScheduler` 调用 `DynamicReplyTurnGate.evaluate`，继而调用权重评分和动态额度门；自动测试验证实际模式读取后的调用链，不以始终返回 True 的模式测试桩代替配置读取。频率模式不调用普通消息的权重评分分支。权重系数未修改、未重新拟合；本次仍未启动机器人或发送真实 QQ 测试消息。

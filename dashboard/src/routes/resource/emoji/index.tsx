@@ -322,6 +322,9 @@ export function EmojiManagementPage() {
                 {stats && (
                   <div className="space-y-2">
                     <Label>表情包状态</Label>
+                    <p className="text-xs text-muted-foreground" title="按现存表情的持久化使用次数汇总，删除表情会影响此合计。">
+                      累计发送记录：{stats.total_usage_count ?? '—'} 次
+                    </p>
                     <Select
                       value={list.filters.status === 'all' ? 'adopted' : list.filters.status}
                       onValueChange={(value) => list.setFilter('status', value as EmojiStatus)}

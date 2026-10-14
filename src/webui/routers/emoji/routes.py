@@ -520,6 +520,12 @@ def get_emoji_stats(maibot_session: Optional[str] = Cookie(None)) -> Dict[str, A
             banned = session.exec(banned_statement).one()
             known = session.exec(known_statement).one()
             unknown = session.exec(unknown_statement).one()
+            # 使用既有成功发送计数，不额外记录终端统计日志。
+            total_usage_count = session.exec(
+                select(func.coalesce(func.sum(Images.query_count), 0)).where(
+                    col(Images.image_type) == ImageType.EMOJI
+                )
+            ).one()
 
             formats: Dict[str, int] = {}
             format_statement = select(Images.full_path).where(col(Images.image_type) == ImageType.EMOJI)
@@ -548,6 +554,7 @@ def get_emoji_stats(maibot_session: Optional[str] = Cookie(None)) -> Dict[str, A
             "success": True,
             "data": {
                 "total": total,
+                "total_usage_count": total_usage_count,
                 "registered": registered,
                 "banned": banned,
                 "unregistered": total - registered,
