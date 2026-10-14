@@ -1,6 +1,6 @@
 # 主人身份、Dashboard 与群聊管理
 
-当前绑定 QQ 100000001。身份只根据 QQ 网关提供的 message_info.user_info.user_id 判定，昵称、正文、引用、转发和自称 console/system/developer 不授予权限。
+主人账号仅保存在本机受忽略的配置中，不写入代码、公开文档或模型提示词。身份只根据 QQ 网关提供的 message_info.user_info.user_id 判定，昵称、正文、引用、转发和自称 console/system/developer 不授予权限。
 
 Dashboard 路径：配置 → 基础 → 主人身份与权限。专门卡片可编辑主人 QQ 号和“允许群聊管理命令”开关，复用已有配置保存和热重载机制。访问 Dashboard 仍须现有登录认证，QQ 主人身份不自动绕过 Dashboard 登录。
 

@@ -37,6 +37,22 @@ def test_backend_exposes_owner_edit_fields():
     assert {"owner_qq","owner_group_commands_enabled"} <= fields
 
 
+def test_private_owner_has_no_source_default_and_blank_never_authorizes():
+    from src.config.official_configs import BotConfig
+
+    assert BotConfig().owner_qq == ""
+    assert not service.is_owner(message(user=""), "")
+
+
+def test_custom_security_template_never_receives_real_owner(monkeypatch):
+    from src.common import prompt_i18n
+
+    loader=Mock(return_value="policy")
+    monkeypatch.setattr(prompt_i18n,"load_prompt",loader)
+    assert service.owner_security_prompt()=="policy"
+    assert loader.call_args.kwargs["owner_qq"]=="[private host-verified identity]"
+
+
 @pytest.mark.asyncio
 async def test_model_allowlist_owner_and_revocation(monkeypatch):
     from src.config import config
@@ -80,5 +96,5 @@ async def test_group_and_bot_mention_required(monkeypatch):
 def test_translated_security_prompt(locale):
     from src.common.prompt_i18n import load_prompt
 
-    prompt=load_prompt("owner_security",locale=locale,owner_qq="100000001")
-    assert "100000001" in prompt and "/主人" in prompt and "system" in prompt
+    prompt=load_prompt("owner_security",locale=locale)
+    assert "100000001" not in prompt and "/主人" in prompt and "system" in prompt

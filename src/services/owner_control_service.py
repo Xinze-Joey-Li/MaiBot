@@ -17,14 +17,13 @@ if TYPE_CHECKING:
 
 def owner_security_prompt() -> str:
     from src.common.prompt_i18n import load_prompt
-    from src.config.config import global_config
-
-    return load_prompt("owner_security", owner_qq=global_config.bot.owner_qq)
+    # 兼容旧自定义模板中的占位符，但绝不将真实账号发送给模型或 Prompt 日志。
+    return load_prompt("owner_security", owner_qq="[private host-verified identity]")
 
 
 def is_owner(message: "SessionMessage", owner_qq: str) -> bool:
     """不信任昵称、正文、引用、转发或模型声明的身份。"""
-    return message.platform == "qq" and str(message.message_info.user_info.user_id) == owner_qq
+    return bool(owner_qq) and message.platform == "qq" and str(message.message_info.user_info.user_id) == owner_qq
 
 
 def command_body(message: "SessionMessage") -> Optional[str]:

@@ -108,7 +108,7 @@ class BotConfig(ConfigBase):
     __ui_order__ = 10
 
     owner_qq: str = Field(
-        default="100000001", pattern=r"^[1-9][0-9]{4,19}$",
+        default="", pattern=r"^(?:[1-9][0-9]{4,19})?$",
         json_schema_extra={"label": {"zh_CN": "主人 QQ 号", "en_US": "Owner QQ", "ja_JP": "主人 QQ"},
                            "x-widget": "input"},
     )
