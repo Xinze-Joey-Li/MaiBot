@@ -17,7 +17,7 @@ def import_bundle(root: Path, database: Path, bundle: Path) -> Dict[str, int]:
     for file_hash in metadata:
         files = list(bundle.glob(file_hash + '.*'))
         if len(files) != 1 or hashlib.sha256(files[0].read_bytes()).hexdigest() != file_hash:
-            raise ValueError(f'Invalid or missing image; fetch the complete resource directory: {file_hash}')
+            raise ValueError(f'Invalid image or missing file; fetch the complete resource directory: {file_hash}')
         sources[file_hash] = files[0]
     if not database.is_file():
         raise FileNotFoundError('Start MaiBot once to initialize the database before importing')
