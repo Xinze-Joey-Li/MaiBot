@@ -6,6 +6,8 @@ import random
 import re
 import time
 
+from .simulated_typing import wait_for_simulated_typing
+
 from src.chat.message_receive.chat_manager import BotChatSession
 from src.chat.message_receive.message import SessionMessage
 from src.chat.utils.utils import get_chat_type_and_target_info, is_bot_self
@@ -1125,6 +1127,7 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
         reasoning_continuation_count = 0
         default_task_name = str(getattr(self.express_model, "task_name", "") or "replyer").strip() or "replyer"
 
+        typing_started_at: Optional[float] = None
         while True:
             try:
                 before_request_result = await self._get_runtime_manager().invoke_hook(
@@ -1231,6 +1234,8 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
                 return request_messages
 
             llm_started_at = time.perf_counter()
+            if typing_started_at is None:
+                typing_started_at = llm_started_at
             try:
                 active_model = self.express_model
                 if active_task_name != default_task_name:
@@ -1525,4 +1530,7 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
                 f"retry_count={retry_count} final={self._normalize_content(response_text, limit=300)!r}"
             )
         result.text_fragments = [response_text]
+        if typing_started_at is not None:
+            delay = await wait_for_simulated_typing(response_text, typing_started_at)
+            result.metrics.extra["simulated_typing_wait_ms"] = round(delay * 1000, 2)
         return finalize(True)

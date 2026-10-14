@@ -79,6 +79,7 @@ class MessageTurnScheduler:
             dynamic_result = self._dynamic_reply_gate.evaluate(
                 pending_messages=runtime.message_cache[runtime._last_processed_index :],
                 frequency=effective_frequency,
+                allow_observation=runtime._agent_state == "stop",
             )
             logger.info(
                 f"{runtime.log_prefix} 回复频率调度: [频率: {formatted_frequency}][{pending_count} 消息] "
@@ -86,6 +87,8 @@ class MessageTurnScheduler:
             )
             if dynamic_result.should_trigger:
                 runtime._enqueue_message_turn()
+            elif dynamic_result.delay_seconds is not None:
+                runtime._defer_message_turn_check(dynamic_result.delay_seconds)
             return
 
         # frequency 仅在旧模式被显式选择时计算；dynamic 完全由权重评分和动态额度判定。

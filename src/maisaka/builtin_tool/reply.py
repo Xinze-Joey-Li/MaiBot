@@ -587,7 +587,8 @@ async def handle_tool(
                     set_reply=segment_set_quote,
                     reply_message=segment_reply_message,
                     selected_expressions=reply_result.selected_expression_ids or None,
-                    typing=index > 0,
+                    # 回复器已扣除模型耗时并等待一次，分段不再叠加旧打字延迟。
+                    typing=False,
                     sync_to_maisaka_history=True,
                     maisaka_source_kind="guided_reply",
                 )

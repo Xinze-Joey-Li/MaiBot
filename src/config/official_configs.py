@@ -786,7 +786,7 @@ class ChatTagMemoryConfig(ConfigBase):
     cleanup_interval_days: int = Field(default=14, ge=1)
     """实际清理间隔天数，成功清理时间持久化保存，重启不会重置周期。"""
 
-    batch_size: int = Field(default=25, ge=1)
+    batch_size: int = Field(default=30, ge=1)
     """每累计多少条有效群文本统一提取标签，机器人沉默时同样执行。"""
 
     max_wait_seconds: int = Field(default=1800, ge=1)
@@ -1518,7 +1518,7 @@ class AMemorixIntegrationConfig(ConfigBase):
             "x-widget": "switch",
         },
     )
-    """旧群摘要写回开关；启用 chat.tag_memory 时停用，改为独立的 25 条/30 分钟标签提取。"""
+    """旧群摘要写回开关；启用 chat.tag_memory 时停用，改为独立的 30 条/30 分钟标签提取。"""
 
     chat_summary_writeback_message_threshold: int = Field(
         default=36,

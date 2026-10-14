@@ -1297,7 +1297,9 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
         except asyncio.CancelledError:
             return
         finally:
-            self._deferred_message_turn_task = None
+            # 被替换的旧定时器不能清除新任务的引用，否则关闭时无法取消它。
+            if self._deferred_message_turn_task is asyncio.current_task():
+                self._deferred_message_turn_task = None
 
     def _update_message_trigger_state(self, message: SessionMessage) -> None:
         """补齐消息中的 @/提及 标记，并在命中时启用强制触发。"""
