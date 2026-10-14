@@ -1,4 +1,9 @@
 data/
+resources/qq-agent/emoji/*.gif
+resources/qq-agent/emoji/*.png
+resources/qq-agent/emoji/*.jpg
+resources/qq-agent/emoji/*.jpeg
+resources/qq-agent/emoji/*.webp
 # Local roleplay benchmark data
 tools/roleplay_benchmark/
 tools/roleplay_benchmark/data/agent_scores.json

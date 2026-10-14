@@ -1,15 +1,28 @@
-# QQ-Agent 表情资源
+# 可选表情包（148 张）
 
-本目录包含 148 张图片及按 SHA256 索引的评分元数据。图片通过普通 Git 分发（约 497 MiB；公开 fork 不支持新增 LFS 对象），不包含聊天数据库、群标识、主人账号或个人配置。
-
-新机器拉取完整仓库即可获得图片。启动 MaiBot 一次初始化数据库，然后停止机器人，在项目根目录运行：
+评分 metadata.json 和下载清单随代码提供，图片不再放在最新版本的 Git 树中。原始图片固定从 v0.2.5 对应提交下载，逐文件核验 SHA256 与大小；约 497 MiB。普通完整克隆仍会下载历史图片，请使用浅克隆或 GitHub 最新分支源码 ZIP：
 
 ```powershell
-uv run python scripts/import_qq_agent_emojis.py
+git clone --depth 1 --branch feature/qq-agent https://github.com/Xinze-Joey-Li/MaiBot.git
 ```
 
-工具先验证图片哈希、备份 SQLite 数据库，然后在事务内按哈希注册。重复导入不会增加重复记录；已有标签合并去重，使用计数、时间记录及手动禁用状态保留。失败时数据库事务回滚，已复制的图片保留供重试；不会调用模型或发送消息。建议仅在机器人停止时运行。
+不需要这批表情：无需运行任何工具，机器人可使用自己的表情库，评分文件不会自动注册图片。
 
-评分自动读取本目录 metadata.json。本地 data/emoji_selection_metadata.json 的同哈希字段优先覆盖仓库字段，因此既有评分偏好保留。仅下载元数据不会自动注册图片，需要执行上述导入。
+需要这批表情：在项目根目录执行以下命令。无参数只显示文件状态，不联网：
 
-实际 data/ 继续被 Git 忽略，数据库备份与运行历史不提交。Dashboard 构建产物亦不提交；拉取前端变更后在 dashboard 运行 `bun install --frozen-lockfile` 和 `bun run build`。
+```powershell
+uv run python scripts/manage_qq_agent_emojis.py
+uv run python scripts/manage_qq_agent_emojis.py --download
+```
+
+下载可重试，已通过校验的文件直接复用；校验失败不会覆盖现有文件。下载只取得资源，不访问聊天数据库。首次启动 MaiBot 初始化数据库后，停止机器人并选择注册：
+
+```powershell
+uv run python scripts/manage_qq_agent_emojis.py --register
+# 或一次下载并注册（机器人必须停止）
+uv run python scripts/manage_qq_agent_emojis.py --download --register
+```
+
+注册前备份数据库，按哈希去重、合并标签，保留已有计数、时间及手动禁用状态。失败时数据库事务回滚，复制的图片保留供重试。不调用模型或发送消息。本地 data/emoji_selection_metadata.json 按字段优先覆盖仓库评分。更新不会删除已下载图片或已注册表情。
+
+图片来源提交必须继续保留；不要删除 v0.2.5 或重写其资源历史。当前完整历史体积未缩减，浅克隆请选最新分支而非 v0.2.5。

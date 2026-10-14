@@ -73,6 +73,9 @@ MaiSaka 不仅仅是一个机器人，不仅仅是一个可以帮你完成任务
 
 **QQ Agent 个人迭代：v0.2.5（添加更多表情）** · 基于 MaiBot v1.3.5，开发分支 `feature/qq-agent`，版本标签 [`v0.2.5`](https://github.com/Xinze-Joey-Li/MaiBot/tree/v0.2.5)。
 
+QQ-Agent 的 148 张附加表情为可选资源。建议使用 `git clone --depth 1 --branch feature/qq-agent https://github.com/Xinze-Joey-Li/MaiBot.git`，默认不下载该批图片。需要时运行 `uv run python scripts/manage_qq_agent_emojis.py --download`，停止机器人后加 `--register` 注册；详见 [可选表情说明](resources/qq-agent/emoji/README.md)。普通完整克隆仍包含历史图片。
+
+
 **最新版本: v1.3.5**
 
 <sub><sup><strong>Latest Version: v1.3.5</strong></sup></sub>
