@@ -156,3 +156,16 @@ class TagMemoryRoutesTest(TestCase):
         self.assertEqual(jobs[0]["status"], "failed")
         self.assertEqual(self.client.post(path, headers=self.headers).status_code, 200)
         self.assertEqual(self.store.list_extraction_jobs("group")[0]["attempts"], 0)
+
+
+    def test_job_trace_requires_auth_and_enforces_group_scope(self):
+        self.store.initialize_scanner(0)
+        self.store.enqueue_page([{"session_id": "group", "message_id": "queued", "timestamp": 0}], 1)
+        job = self.store.next_extraction_job()
+        path = f"/api/webui/tag-memory/group/extraction-jobs/{job['id']}/trace"
+        self.assertEqual(self.client.get(path).status_code, 401)
+        result = self.client.get(path, headers=self.headers)
+        self.assertEqual(result.status_code, 200)
+        self.assertFalse(result.json()["messages_consumed"])
+        foreign = path.replace("/group/", "/other/")
+        self.assertEqual(self.client.get(foreign, headers=self.headers).status_code, 400)

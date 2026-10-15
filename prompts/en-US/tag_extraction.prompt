@@ -9,4 +9,5 @@ Output exactly one JSON object, without Markdown:
 {"summary":"Concise batch summary","tags":[{"name":"Topic name","summary":"Tag summary","category_path":["群公共","事件"],"evidence":[{"message_id":"Real ID in this batch","quote":"Verbatim excerpt"}],"previous_tag_id":null,"requires_long_term":false}]}
 Each tag needs at least one evidence item. quote must be copied exactly from that message's text. Output only JSON.
 Input:
+allowed_previous_tag_ids is the sole continuation allow-list, exactly matching id in previous_extraction_tags. These are complete tag database string IDs, never batch, message, job IDs or list positions; copy them exactly. An empty allow-list requires every previous_tag_id to be null. Earlier summaries grant no reference permissions.
 {input_json}

@@ -7,6 +7,8 @@ import json
 
 import pytest
 
+from pytests.tag_helpers import pair_response
+
 from src.services.tag_conflict_service import decide_tag_conflicts, parse_conflict_decisions
 from src.services.tag_memory_store import StaleTagConflict, TagCandidate, TagMemoryStore, validate_conflict_pairs
 
@@ -127,7 +129,8 @@ async def test_model_mixed_actions_are_not_rejected(monkeypatch):
     raw = json.dumps({"decisions": [{"old_tag_id": name, "decision": action, "reason": name}
                                     for name, action in (("A", "replace_old"), ("B", "keep_old"))]})
     client = SimpleNamespace(generate_response=AsyncMock(return_value=SimpleNamespace(
-        response=raw, prompt_tokens=1, completion_tokens=1, total_tokens=2)))
+        generation_attempts=(), response=raw, prompt_tokens=1, completion_tokens=1, total_tokens=2)))
+    client.generate_response.side_effect = lambda prompt: pair_response(prompt, json.loads(raw)["decisions"])
     monkeypatch.setattr("src.services.llm_service.LLMServiceClient", lambda **kwargs: client)
     monkeypatch.setattr("src.common.prompt_i18n.load_prompt", lambda name: "{input_json}")
     result = await decide_tag_conflicts("group", [TagCandidate("N", "N", ("群公共", "偏好"))], tags)

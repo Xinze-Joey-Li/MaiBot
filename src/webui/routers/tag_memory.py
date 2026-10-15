@@ -154,3 +154,9 @@ def retry_extraction_job(session_id: str, job_id: str):
     store, scope = scoped_store(session_id)
     perform(store.retry_extraction_job, scope, job_id)
     return {"success": True}
+
+
+@router.get("/{session_id}/extraction-jobs/{job_id}/trace")
+def extraction_job_trace(session_id: str, job_id: str):
+    store, scope = scoped_store(session_id)
+    return perform(store.job_trace, scope, job_id)

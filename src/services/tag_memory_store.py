@@ -98,7 +98,7 @@ class TagMemoryStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1, 2, 3, 4, 5, 6, 7, 8):
+            if version not in (0, 1, 2, 3, 4, 5, 6, 7, 8, 9):
                 raise RuntimeError(f"不支持的标签数据库版本: {version}")
             connection.execute("PRAGMA journal_mode=WAL")
             connection.executescript("""
@@ -274,7 +274,20 @@ class TagMemoryStore:
                     COMMIT;
                 """)
             connection.execute("CREATE INDEX IF NOT EXISTS ix_extraction_ready ON extraction_jobs(status,retry_at,lease_until)")
-            connection.execute("PRAGMA user_version=8")
+            connection.executescript("""
+                CREATE TABLE IF NOT EXISTS extraction_events (
+                    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL, job_id TEXT NOT NULL,
+                    event TEXT NOT NULL, created_at REAL NOT NULL, detail TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS ix_extraction_events_job ON extraction_events(session_id,job_id);
+                CREATE TABLE IF NOT EXISTS conflict_pair_cache (
+                    session_id TEXT NOT NULL, cache_key TEXT NOT NULL,
+                    output TEXT NOT NULL, created_at REAL NOT NULL,
+                    PRIMARY KEY(session_id,cache_key)
+                );
+            """)
+            connection.execute("PRAGMA user_version=9")
 
     @staticmethod
     def _migrate_latest_conflicts(connection: sqlite3.Connection) -> None:
@@ -365,6 +378,7 @@ class TagMemoryStore:
         extraction_job_id: Optional[str] = None,
         conflict_decisions: Optional[List[Dict[str, Any]]] = None,
         conflict_versions: Optional[Dict[str, int]] = None,
+        conflict_categories: Optional[List[List[str]]] = None,
     ) -> Dict[str, Any]:
         if not session_id.strip() or not session_name.strip() or not external_id.strip() or not summary.strip():
             raise ValueError("会话、批次标识和批次摘要不能为空")
@@ -404,7 +418,7 @@ class TagMemoryStore:
                 if existing["fingerprint"] != fingerprint:
                     raise ValueError("同一批次 ID 的输入发生变化，拒绝覆盖")
                 return {"batch_id": existing["id"], "created": False}
-            self._check_conflict_versions(connection, session_id, conflict_versions or {})
+            self._check_conflict_versions(connection, session_id, conflict_versions or {}, conflict_categories)
             previous_extraction = None
             allow_topic_update = True
             job_payload = None
@@ -418,6 +432,14 @@ class TagMemoryStore:
                 if set(sources) != {item["message_id"] for item in job_payload["messages"]}:
                     raise ValueError("提交消息与冻结的提取任务不一致")
                 previous_extraction = job_payload["previous_batch_id"]
+                if "reference_snapshot" in job_payload:
+                    allowed = {tag["id"]: tag for tag in job_payload["reference_snapshot"]["previous_extraction_tags"]}
+                    for tag in tags:
+                        if tag.previous_tag_id is not None and (
+                            tag.previous_tag_id not in allowed or
+                            allowed[tag.previous_tag_id]["category_path"] != list(tag.category_path)
+                        ):
+                            raise ValueError("提交延续引用不属于冻结的同会话上一批标签")
                 state = connection.execute(
                     "SELECT last_batch_id FROM extraction_state WHERE session_id=?", (session_id,)
                 ).fetchone()
@@ -548,6 +570,14 @@ class TagMemoryStore:
                     (session_id, batch_id, timestamp if now is not None else time.time()),
                 )
                 connection.execute("DELETE FROM extraction_jobs WHERE id=?", (extraction_job_id,))
+                connection.execute("INSERT INTO extraction_events(session_id,job_id,event,created_at,detail) VALUES(?,?,?,?,?)",
+                                   (session_id, extraction_job_id, "committed", timestamp, json.dumps({
+                                       "batch_id": batch_id, "messages_consumed": True, "new_tags": len(tags),
+                                       "continued_tags": sum(tag.previous_tag_id is not None for tag in tags),
+                                       "conflict_pairs": len(decisions),
+                                       "superseded_tags": sum(status == "superseded" for status in statuses.values()),
+                                       "disputed_tags": sum(status == "disputed" for status in statuses.values()),
+                                   }, ensure_ascii=False)))
             return {"batch_id": batch_id, "created": True}
 
     @staticmethod
@@ -656,11 +686,93 @@ class TagMemoryStore:
                 "ORDER BY id LIMIT ?", (session_id,selected_batch_size)).fetchall()
             previous = connection.execute("SELECT last_batch_id FROM extraction_state WHERE session_id=?", (session_id,)).fetchone()
             job_id = uuid.uuid4().hex
-            payload = json.dumps({"inbox_ids":[row["id"] for row in items],"messages":[json.loads(row["payload"]) for row in items],
-                                  "previous_batch_id":previous[0] if previous else None},ensure_ascii=False)
+            payload_data = {"inbox_ids":[row["id"] for row in items],"messages":[json.loads(row["payload"]) for row in items],
+                                  "previous_batch_id":previous[0] if previous else None}
+            self._freeze_snapshot(connection, session_id, payload_data, "job_creation")
+            payload = json.dumps(payload_data, ensure_ascii=False)
             connection.execute("INSERT INTO extraction_jobs(id,session_id,payload,lease_until) VALUES(?,?,?,?)",
                                (job_id,session_id,payload,now+240 if claim else 0))
             return dict(connection.execute("SELECT * FROM extraction_jobs WHERE id=?", (job_id,)).fetchone())
+
+    @staticmethod
+    def _freeze_snapshot(connection: sqlite3.Connection, session_id: str, payload: Dict[str, Any], origin: str) -> None:
+        previous_id = payload["previous_batch_id"]
+        context = TagMemoryStore._batch_context(connection, session_id, previous_id) if previous_id else []
+        # Older context explains ellipses, but its IDs must never look like permitted continuation IDs.
+        previous_tags = next((batch["tags"] for batch in context if batch["id"] == previous_id), [])
+        snapshot = {
+            "previous_batches": [{"summary": batch["summary"], "tags": [
+                {key: tag[key] for key in ("name", "summary", "category_path")} for tag in batch["tags"]]}
+                for batch in context if batch["id"] != previous_id][-3:],
+            "previous_extraction_tags": previous_tags,
+        }
+        payload["reference_snapshot"] = snapshot
+        payload["snapshot_id"] = hashlib.sha256(json.dumps(snapshot, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        payload["snapshot_origin"] = origin
+
+    def freeze_extraction_job(self, job_id: str) -> Dict[str, Any]:
+        """Upgrade a legacy job once; retries never re-read mutable tags or context."""
+        with self._connect(write=True) as connection:
+            row = connection.execute("SELECT * FROM extraction_jobs WHERE id=?", (job_id,)).fetchone()
+            if row is None:
+                raise ValueError("提取任务不存在")
+            payload = json.loads(row["payload"])
+            if "reference_snapshot" not in payload:
+                self._freeze_snapshot(connection, row["session_id"], payload, "legacy_first_resume")
+                connection.execute("UPDATE extraction_jobs SET payload=? WHERE id=?",
+                                   (json.dumps(payload, ensure_ascii=False), job_id))
+            result = dict(row)
+            result["payload"] = json.dumps(payload, ensure_ascii=False)
+            return result
+
+    def record_job_event(self, session_id: str, job_id: str, event: str, detail: Dict[str, Any]) -> bool:
+        with self._connect(write=True) as connection:
+            if detail.get("request_id") and connection.execute(
+                "SELECT 1 FROM extraction_events WHERE session_id=? AND job_id=? AND event=? "
+                "AND json_extract(detail,'$.request_id')=?",
+                (session_id, job_id, event, detail["request_id"]),
+            ).fetchone():
+                return False
+            connection.execute("INSERT INTO extraction_events(session_id,job_id,event,created_at,detail) VALUES(?,?,?,?,?)",
+                               (session_id, job_id, event, time.time(), json.dumps(detail, ensure_ascii=False)))
+            return True
+
+    def job_trace(self, session_id: str, job_id: str) -> Dict[str, Any]:
+        with self._connect() as connection:
+            rows = connection.execute("SELECT event,created_at,detail FROM extraction_events "
+                                      "WHERE session_id=? AND job_id=? ORDER BY sequence", (session_id, job_id)).fetchall()
+            job = connection.execute("SELECT * FROM extraction_jobs WHERE session_id=? AND id=?", (session_id, job_id)).fetchone()
+            batch = connection.execute("SELECT id FROM batches WHERE session_id=? AND external_id=?",
+                                       (session_id, "extract:" + job_id)).fetchone()
+            if not rows and job is None and batch is None:
+                raise ValueError("当前会话不存在该任务")
+            events = [{"event": row["event"], "created_at": row["created_at"], **json.loads(row["detail"])} for row in rows]
+            usage = [event for event in events if event["event"] == "model_usage"]
+            requested = {event["request_id"] for event in events if event["event"] == "model_request"}
+            measured = {event["request_id"] for event in usage}
+            return {"job_id": job_id, "status": job["status"] if job else "completed" if batch else "unknown",
+                    "batch_id": batch[0] if batch else None, "messages_consumed": batch is not None,
+                    "error": job["error"] if job else None, "failure_attempts": job["attempts"] if job else None,
+                    "recovery": f"POST /api/webui/tag-memory/{session_id}/extraction-jobs/{job_id}/retry" if job else None,
+                    "requests_with_usage": len(usage), "unknown_usage_requests": len(requested - measured),
+                    "usage_scope": "returned_responses_only",
+                    "unmeasured_provider_attempt_ids": sorted({attempt["id"] for item in usage
+                        for attempt in item.get("provider_attempts", [])[:-1]}),
+                    "elapsed_seconds": sum(event["elapsed_seconds"] for event in events if event["event"] == "attempt_finished"),
+                    "usage": {key: sum(item[key] for item in usage) for key in ("prompt_tokens", "completion_tokens", "total_tokens")},
+                    "events": events}
+
+    def get_pair_cache(self, session_id: str, cache_key: str) -> Optional[str]:
+        with self._connect() as connection:
+            row = connection.execute("SELECT output FROM conflict_pair_cache WHERE session_id=? AND cache_key=? AND created_at>?",
+                                     (session_id, cache_key, time.time() - 14 * DAY_SECONDS)).fetchone()
+            return row[0] if row else None
+
+    def cache_pair_result(self, session_id: str, cache_key: str, output: str) -> None:
+        with self._connect(write=True) as connection:
+            connection.execute("DELETE FROM conflict_pair_cache WHERE created_at<=?", (time.time() - 14 * DAY_SECONDS,))
+            connection.execute("INSERT OR REPLACE INTO conflict_pair_cache VALUES(?,?,?,?)",
+                               (session_id, cache_key, output, time.time()))
 
     def record_extraction_metrics(self, session_id: str, elapsed: float, success: bool) -> None:
         with self._connect(write=True) as connection:
@@ -699,7 +811,7 @@ class TagMemoryStore:
             if cursor.rowcount != 1:
                 raise ValueError("提取任务不存在")
 
-    def fail_extraction_job(self, job_id: str, error: str, *, invalid_output: bool, invalid_conflict: bool = False) -> None:
+    def fail_extraction_job(self, job_id: str, error: str, *, invalid_output: bool, invalid_conflict: bool = False, terminal: bool = False) -> None:
         if invalid_output:
             self.remove_job_cache(job_id, "output")
         if invalid_output or invalid_conflict:
@@ -713,7 +825,7 @@ class TagMemoryStore:
                     raise ValueError("提取任务不存在")
                 previous = {"attempts": row[0]}
         attempts = previous["attempts"] + 1
-        status = "failed" if attempts >= MAX_EXTRACTION_ATTEMPTS else "pending"
+        status = "failed" if terminal or attempts >= MAX_EXTRACTION_ATTEMPTS else "pending"
         retry_at = time.time() + min(60 * 2 ** min(attempts - 1, 10), 3600)
         self.write_job_cache(job_id, "failures", {
             "attempts": attempts, "status": status, "retry_at": retry_at, "error": error,
@@ -750,10 +862,15 @@ class TagMemoryStore:
                 raise ValueError("提取任务尚未失败，不需要人工重试")
             connection.execute("UPDATE extraction_jobs SET status='pending',attempts=0,retry_at=0,error='',resumed=1,lease_until=0 "
                                "WHERE id=? AND session_id=?",(job_id,session_id))
+            connection.execute("INSERT INTO extraction_events(session_id,job_id,event,created_at,detail) VALUES(?,?,?,?,?)",
+                               (session_id, job_id, "recovery_requested", time.time(), json.dumps({
+                                   "previous_error": row["error"], "messages_consumed": False,
+                                   "reference_snapshot_preserved": True}, ensure_ascii=False)))
         self.remove_job_cache(job_id,"failures")
+        self.remove_job_cache(job_id,"repair")
 
     def _job_cache_path(self, job_id: str, kind: str) -> Path:
-        if not re.fullmatch(r"[a-f0-9]{32}", job_id) or kind not in {"output", "conflicts", "failures"}:
+        if not re.fullmatch(r"[a-f0-9]{32}", job_id) or kind not in {"output", "conflicts", "failures", "repair", "template", "usage"}:
             raise ValueError("任务缓存标识无效")
         return self.db_path.parent / (self.db_path.name + ".job-cache") / f"{job_id}.{kind}.json"
 
@@ -776,28 +893,37 @@ class TagMemoryStore:
         self._job_cache_path(job_id, kind).unlink(missing_ok=True)
 
     @staticmethod
-    def _check_conflict_versions(connection: sqlite3.Connection, scope: str, versions: Dict[str, int]) -> None:
+    def _check_conflict_versions(connection: sqlite3.Connection, scope: str, versions: Dict[str, int],
+                                 categories: Optional[List[List[str]]] = None) -> None:
+        if categories is not None:
+            relevant = {row["id"] for row in connection.execute(
+                "SELECT t.id,c.path FROM tags t JOIN categories c ON c.id=t.category_id "
+                "WHERE t.session_id=? AND t.status NOT IN ('deleted','superseded')", (scope,))
+                if json.loads(row["path"]) in categories}
+            if relevant != set(versions):
+                raise StaleTagConflict("冲突检查期间同分类候选集合发生变化，需要重新判断")
         for tag_id, revision in versions.items():
             row = connection.execute("SELECT revision,status FROM tags WHERE session_id=? AND id=?", (scope, tag_id)).fetchone()
             if row is None or row[0] != revision or row[1] in {"deleted", "superseded"}:
                 raise StaleTagConflict("冲突检查期间标签被修改，需要重新判断")
 
     def cache_conflict_output(self, job_id: str, decisions: List[Dict[str, Any]],
-                              checked_tags: Optional[Dict[str, int]] = None) -> None:
+                              checked_tags: Optional[Dict[str, int]] = None, *, rule_signature: Optional[str] = None,
+                              categories: Optional[List[List[str]]] = None) -> None:
         with self._connect(write=True) as connection:
             job = connection.execute("SELECT session_id FROM extraction_jobs WHERE id=?", (job_id,)).fetchone()
             if job is None:
                 raise ValueError("冲突裁决任务不存在")
             versions = checked_tags if checked_tags is not None else {
                 item["old_tag_id"]: item.get("old_revision", 0) for item in decisions}
-            self._check_conflict_versions(connection, job[0], versions)
+            self._check_conflict_versions(connection, job[0], versions, categories)
             for decision in decisions:
                 old = connection.execute("SELECT revision,status FROM tags WHERE id=? AND session_id=?",
                                          (decision["old_tag_id"], job[0])).fetchone()
                 if old is None or old[0] != decision.get("old_revision", 0) or old[1] in {"superseded", "deleted"}:
                     raise StaleTagConflict("冲突检查期间标签被修改，需要重新判断")
             cursor = connection.execute("UPDATE extraction_jobs SET conflict_output=? WHERE id=?",
-                                        (json.dumps({"decisions": decisions, "checked_tags": versions}, ensure_ascii=False), job_id))
+                                        (json.dumps({"decisions": decisions, "checked_tags": versions, "rule_signature": rule_signature, "categories": categories}, ensure_ascii=False), job_id))
             if cursor.rowcount != 1:
                 raise ValueError("冲突裁决任务不存在")
 
@@ -1036,26 +1162,30 @@ class TagMemoryStore:
 
     def get_batch_context(self, session_id: str, batch_id: str) -> List[Dict[str, Any]]:
         with self._connect() as connection:
-            rows = connection.execute("""
-                SELECT b.* FROM batches b WHERE b.session_id=? AND b.archived=0 AND
-                (b.id=? OR b.id IN (SELECT previous_id FROM batch_links WHERE session_id=? AND current_id=?) OR
-                 b.id IN (SELECT current_id FROM batch_links WHERE session_id=? AND previous_id=?))
-                ORDER BY b.rowid
-            """, (session_id, batch_id, session_id, batch_id, session_id, batch_id)).fetchall()
-            result = []
-            for row in rows:
-                batch = dict(row)
-                batch["tags"] = [
-                    {**dict(tag), "category_path": json.loads(tag["path"])}
-                    for tag in connection.execute("""
-                        SELECT t.id, t.name, t.summary, (t.is_active OR t.auto_active) AS is_active,
-                        t.requires_long_term, t.status, c.path
-                        FROM tags t JOIN categories c ON c.id=t.category_id
-                        WHERE t.session_id=? AND t.batch_id=? AND t.status='valid' ORDER BY t.created_at, t.id
-                    """, (session_id, row["id"]))
-                ]
-                result.append(batch)
-            return result
+            return self._batch_context(connection, session_id, batch_id)
+
+    @staticmethod
+    def _batch_context(connection: sqlite3.Connection, session_id: str, batch_id: str) -> List[Dict[str, Any]]:
+        rows = connection.execute("""
+            SELECT b.* FROM batches b WHERE b.session_id=? AND b.archived=0 AND
+            (b.id=? OR b.id IN (SELECT previous_id FROM batch_links WHERE session_id=? AND current_id=?) OR
+             b.id IN (SELECT current_id FROM batch_links WHERE session_id=? AND previous_id=?))
+            ORDER BY b.rowid
+        """, (session_id, batch_id, session_id, batch_id, session_id, batch_id)).fetchall()
+        result = []
+        for row in rows:
+            batch = dict(row)
+            batch["tags"] = [
+                {**dict(tag), "category_path": json.loads(tag["path"])}
+                for tag in connection.execute("""
+                    SELECT t.id, t.name, t.summary, (t.is_active OR t.auto_active) AS is_active,
+                    t.requires_long_term, t.status, t.revision, c.path
+                    FROM tags t JOIN categories c ON c.id=t.category_id
+                    WHERE t.session_id=? AND t.batch_id=? AND t.status='valid' ORDER BY t.created_at, t.id
+                """, (session_id, row["id"]))
+            ]
+            result.append(batch)
+        return result
 
     def get_topics(self, session_id: str) -> List[Dict[str, Any]]:
         with self._connect() as connection:

@@ -9,4 +9,5 @@ Markdownを使わず、次の形式のJSONオブジェクトを1つだけ出力�
 {"summary":"今回の簡潔な要約","tags":[{"name":"話題名","summary":"タグ要約","category_path":["群公共","事件"],"evidence":[{"message_id":"今回の実在するID","quote":"原文の逐語引用"}],"previous_tag_id":null,"requires_long_term":false}]}
 各タグに少なくとも1件の証拠が必要です。quote は該当メッセージの text からそのまま引用してください。JSONだけを出力してください。
 入力：
+allowed_previous_tag_ids のみが継続参照を許可する集合で、previous_extraction_tags の id と完全に一致する。タグDBの完全な文字列IDであり、バッチ・メッセージ・タスクIDや配列番号ではない。文字列をそのままコピーする。空集合なら全 previous_tag_id を null にする。以前の要約は参照権限を与えない。
 {input_json}

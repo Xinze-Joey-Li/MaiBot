@@ -6,10 +6,12 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 import asyncio
 import json
 import time
+import uuid
+
 
 from .tag_memory_service import tag_memory_service
 from .tag_memory_store import StaleTagConflict, TagCandidate, TagMemoryStore
-from .tag_conflict_service import ConflictBudgetExceeded, InvalidConflictOutput, decide_tag_conflicts
+from .tag_conflict_service import CONFLICT_RULE_VERSION, ConflictBudgetExceeded, InvalidConflictOutput, decide_tag_conflicts
 
 
 @dataclass
@@ -37,7 +39,12 @@ def parse_tag_extraction(
     previous = {item["id"]: item for item in previous_tags}
     result = []
     seen = set()
+    exact_items = set()
     for item in items:
+        encoded = json.dumps(item, sort_keys=True, ensure_ascii=False)
+        if encoded in exact_items:
+            continue
+        exact_items.add(encoded)
         if not isinstance(item, dict):
             raise ValueError("标签必须是对象")
         name, text, path = item.get("name"), item.get("summary"), item.get("category_path")
@@ -75,9 +82,9 @@ def parse_tag_extraction(
         previous_id = item.get("previous_tag_id")
         if previous_id is not None:
             if not isinstance(previous_id, str) or previous_id not in previous:
-                raise ValueError("延续引用不属于上一次提取")
+                raise ValueError(f"延续引用不属于上一次提取: tag={name!r} invalid_id={previous_id!r} allowed_ids={sorted(previous)}")
             if previous[previous_id]["category_path"] != path:
-                raise ValueError("延续话题的分类或人物不一致")
+                raise ValueError(f"延续话题的分类或人物不一致: id={previous_id!r} expected={previous[previous_id]['category_path']!r} actual={path!r}")
         long_term = item.get("requires_long_term", False)
         if not isinstance(long_term, bool):
             raise ValueError("长期记忆标记必须为布尔值")
@@ -199,8 +206,9 @@ class TagExtractionService:
             if self._store is not None:
                 try:
                     await self._io(self._store.fail_extraction_job, job["id"], str(error) or type(error).__name__,
-                                   invalid_output=isinstance(error, InvalidTagOutput),
-                                   invalid_conflict=isinstance(error, (StaleTagConflict, InvalidConflictOutput)))
+                                   invalid_output=isinstance(error, InvalidTagOutput), terminal=isinstance(error, InvalidTagOutput),
+                                   invalid_conflict=isinstance(error, StaleTagConflict) or (
+                                       isinstance(error, InvalidConflictOutput) and error.reset_progress))
                 except Exception:
                     logger.exception("标签提取失败状态写入数据库失败")
         finally:
@@ -210,6 +218,15 @@ class TagExtractionService:
                                    time.monotonic() - started, success)
                 except Exception:
                     logger.exception("标签提取耗时统计写入失败")
+            if self._store is not None:
+                try:
+                    trace = await self._io(self._store.job_trace, job["session_id"], job["id"])
+                    await self._io(self._store.record_job_event, job["session_id"], job["id"], "attempt_finished", {
+                        "elapsed_seconds": time.monotonic() - started, "success": success, "cancelled": cancelled,
+                        "deferred": deferred, "messages_consumed": trace["messages_consumed"], "status": trace["status"],
+                        "cumulative_usage": trace["usage"], "unknown_usage_requests": trace["unknown_usage_requests"], "recovery": "retry_extraction_job(session_id, job_id) after correction"})
+                except Exception:
+                    logger.exception("标签任务审计写入失败")
             self._wake.set()
 
     async def _process_job(self, job: Dict[str, Any]) -> None:
@@ -219,44 +236,108 @@ class TagExtractionService:
         store = self._store
         if store is None:
             raise RuntimeError("标签提取数据库尚未初始化")
+        job = await self._io(store.freeze_extraction_job, job["id"])
         payload = json.loads(job["payload"])
-        context = []
-        if payload["previous_batch_id"] is not None:
-            context = await self._io(store.get_batch_context, job["session_id"], payload["previous_batch_id"])
-        previous_tags = next((batch["tags"] for batch in context if batch["id"] == payload["previous_batch_id"]), [])
+        snapshot = payload["reference_snapshot"]
+        previous_tags = snapshot["previous_extraction_tags"]
+        allowed_ids = [tag["id"] for tag in previous_tags]
+        from src.common.logger import get_logger
+
+        logger = get_logger("tag_extraction")
+        async def event(kind: str, detail: Dict[str, Any]) -> None:
+            inserted = await self._io(store.record_job_event, job["session_id"], job["id"], kind, detail)
+            if not inserted:
+                return
+            logger.info(f"标签任务: session_id={job['session_id']} job_id={job['id']} "
+                        f"batch=extract:{job['id']} event={kind} detail={json.dumps(detail, ensure_ascii=False)}")
+
+        await event("started", {"input_messages": len(payload["messages"]),
+                               "message_ids": [item["message_id"] for item in payload["messages"]],
+                               "message_range": [min(item["timestamp"] for item in payload["messages"]),
+                                                 max(item["timestamp"] for item in payload["messages"])],
+                               "previous_batch_id": payload["previous_batch_id"], "allowed_ids": allowed_ids,
+                               "snapshot_id": payload["snapshot_id"], "snapshot_origin": payload["snapshot_origin"],
+                               "job_failure_attempts": job["attempts"], "messages_consumed": False})
+        async def usage(detail: Dict[str, Any]) -> None:
+            ledger = await self._io(store.read_job_cache, job["id"], "usage") or {}
+            ledger[detail["request_id"]] = detail
+            await self._io(store.write_job_cache, job["id"], "usage", ledger)
+            await event("model_usage", detail)
+
+        ledger = await self._io(store.read_job_cache, job["id"], "usage") or {}
+        for detail in ledger.values():
+            await event("model_usage", detail)
         output = job["model_output"]
         if output is None:
             output = await self._io(store.read_job_cache, job["id"], "output")
-        if output is None:
-            # 相邻任务共享的前文放在消息之前；只压缩 JSON 结构空白，不裁掉证据。
-            prompt_data = {"previous_batches": context[-3:], "previous_extraction_tags": previous_tags,
-                           "messages": payload["messages"]}
+        repair = await self._io(store.read_job_cache, job["id"], "repair") or {"requests": 0}
+        template = await self._io(store.read_job_cache, job["id"], "template")
+        if template is None:
             template = await self._io(load_prompt, "tag_extraction")
-            prompt = template.replace("{input_json}", json.dumps(prompt_data, ensure_ascii=False, separators=(",", ":")))
-            client = LLMServiceClient(
-                task_name="memory", request_type="qq_agent.tag_extraction", session_id=job["session_id"]
-            )
-            await self._io(store.record_model_request, job["session_id"])
-            response = await client.generate_response(prompt)
-            output = response.response
-        try:
-            parsed = parse_tag_extraction(output, payload["messages"], previous_tags)
-        except (ValueError, TypeError) as error:
-            raise InvalidTagOutput(str(error)) from error
+            await self._io(store.write_job_cache, job["id"], "template", template)
+        # 相邻任务的前文放在消息之前；只压缩 JSON 结构空白，不裁掉证据。
+        # 初次请求与两次结构修复共用冻结的消息、前文和允许引用集合。
+        prompt_data = {**snapshot, "allowed_previous_tag_ids": allowed_ids, "messages": payload["messages"]}
+        prompt = template.replace("{input_json}", json.dumps(prompt_data, ensure_ascii=False, separators=(",", ":")))
+        while True:
+            if output is None:
+                if repair["requests"] >= 3:
+                    raise InvalidTagOutput("结构修复重试耗尽: " + repair.get("error", "请求已发出但无持久化结果；请人工恢复"))
+                correction = ""
+                if repair.get("error"):
+                    correction = "\nCorrection (same frozen input): " + json.dumps({
+                        "validation_error": repair["error"], "allowed_previous_tag_ids": allowed_ids,
+                        "previous_batch_id": payload["previous_batch_id"],
+                        "instruction": "Return the complete corrected JSON with grounded evidence. Use only the exact allowed IDs for supported continuations, or null for a genuinely new topic. Do not invent or silently drop references."}, ensure_ascii=False)
+                client = LLMServiceClient(task_name="memory", request_type="qq_agent.tag_extraction", session_id=job["session_id"])
+                request_id = uuid.uuid4().hex
+                repair["requests"] += 1
+                await self._io(store.write_job_cache, job["id"], "repair", repair)
+                await self._io(store.record_model_request, job["session_id"])
+                await event("model_request", {"request_id": request_id, "stage": "extraction", "attempt": repair["requests"]})
+                started = time.monotonic()
+                response = await client.generate_response(prompt + correction)
+                # 已收到的原始输出先落盘，数据库用量写入失败也不重复支付模型调用。
+                output = response.response
+                await self._io(store.write_job_cache, job["id"], "output", output)
+                await usage({"request_id": request_id, "stage": "extraction", "attempt": repair["requests"],
+                             "prompt_tokens": response.prompt_tokens, "completion_tokens": response.completion_tokens,
+                             "total_tokens": response.total_tokens, "usage_scope": "returned_response",
+                             "provider_attempts": [{"id": attempt.attempt_id, "status": attempt.status,
+                                                    "duration_ms": attempt.duration_ms} for attempt in response.generation_attempts],
+                             "elapsed_seconds": time.monotonic() - started})
+            try:
+                parsed = parse_tag_extraction(output, payload["messages"], previous_tags)
+                break
+            except (ValueError, TypeError, KeyError) as error:
+                repair["error"] = str(error)
+                await self._io(store.write_job_cache, job["id"], "repair", repair)
+                await event("invalid_output", {"attempt": repair["requests"], "error": str(error), "allowed_ids": allowed_ids})
+                await self._io(store.remove_job_cache, job["id"], "output")
+                output = None
+                if repair["requests"] >= 3:
+                    raise InvalidTagOutput("结构修复重试耗尽: " + str(error)) from error
         # 已校验输出先持久化；数据库提交失败时重用结果，不重复支付模型调用。
         await self._io(store.write_job_cache, job["id"], "output", output)
         await self._io(store.cache_extraction_output, job["id"], output)
         scope, name = await self._io(tag_memory_service._resolve_scope, job["session_id"])
         await self._io(tag_memory_service._verify_sources, scope, [item["message_id"] for item in payload["messages"]])
         # 冲突检查是独立模型请求；裁决缓存让数据库重试不重复调用模型。
+        conflict_template = await self._io(load_prompt, "tag_conflict")
+        rule_signature = CONFLICT_RULE_VERSION + ":" + conflict_template
+        categories = [list(path) for path in dict.fromkeys(tag.category_path for tag in parsed.tags)]
+        if job.get("conflict_output") is not None:
+            cached = json.loads(job["conflict_output"])
+            if not isinstance(cached, dict) or cached.get("rule_signature") != rule_signature:
+                job["conflict_output"] = None
         if job.get("conflict_output") is None:
             old_tags = await self._io(store.list_current_tags, scope)
 
             async def read_chunk(key: str) -> Optional[str]:
-                return await self._io(store.get_conflict_chunk, job["id"], key)
+                return await self._io(store.get_pair_cache, scope, key)
 
             async def write_chunk(key: str, output: str) -> None:
-                await self._io(store.cache_conflict_chunk, job["id"], key, output)
+                await self._io(store.cache_pair_result, scope, key, output)
 
             async def count_request() -> None:
                 await self._io(store.record_model_request, scope, conflict=True)
@@ -268,19 +349,20 @@ class TagExtractionService:
 
             decisions = await decide_tag_conflicts(scope, parsed.tags, old_tags, read_cache=read_chunk,
                                                   write_cache=write_chunk, on_request=count_request,
-                                                  progress=progress, checkpoint=checkpoint)
+                                                  progress=progress, checkpoint=checkpoint, on_usage=usage, on_started=lambda detail: event("model_request", detail), source_times={item["message_id"]: item["timestamp"] for item in payload["messages"]}, on_stats=lambda detail: event("conflict_stats", detail))
             checked = {tag["id"]: tag["revision"] for tag in old_tags if any(
                 tag["category_path"] == list(candidate.category_path) for candidate in parsed.tags)}
-            await self._io(store.cache_conflict_output, job["id"], decisions, checked)
+            await self._io(store.cache_conflict_output, job["id"], decisions, checked, rule_signature=rule_signature, categories=categories)
         else:
             cached = json.loads(job["conflict_output"])
             if not isinstance(cached, dict):
                 raise StaleTagConflict("旧版冲突缓存需要重新检查标签修订版本")
             decisions, checked = cached["decisions"], cached["checked_tags"]
-        await self._io(store.record_batch, session_id=scope, session_name=name, external_id=f"extract:{job['id']}",
+        batch = await self._io(store.record_batch, session_id=scope, session_name=name, external_id=f"extract:{job['id']}",
                        summary=parsed.summary, message_ids=[item["message_id"] for item in payload["messages"]],
-                       tags=parsed.tags, extraction_job_id=job["id"], conflict_decisions=decisions, conflict_versions=checked)
-        for kind in ("output", "conflicts", "failures"):
+                       tags=parsed.tags, extraction_job_id=job["id"], conflict_decisions=decisions, conflict_versions=checked, conflict_categories=categories)
+        logger.info(f"标签批次已提交: session_id={scope} job_id={job['id']} batch_id={batch['batch_id']} messages_consumed=true")
+        for kind in ("output", "conflicts", "failures", "repair", "template", "usage"):
             await self._io(store.remove_job_cache, job["id"], kind)
 
     async def _worker_loop(self) -> None:

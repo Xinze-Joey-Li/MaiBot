@@ -9,4 +9,5 @@ requires_long_term 仅在有证据支持稳定偏好、重要共同事件等长�
 {"summary":"本批精简摘要","tags":[{"name":"话题名称","summary":"标签摘要","category_path":["群公共","事件"],"evidence":[{"message_id":"本批真实ID","quote":"逐字原文片段"}],"previous_tag_id":null,"requires_long_term":false}]}
 每个标签至少一条证据，quote 必须逐字来自该消息 text。只输出JSON。
 输入：
+allowed_previous_tag_ids 是唯一允许的延续 ID 集合，与 previous_extraction_tags 的 id 完全一致。它们是标签数据库的完整字符串 ID，不是批次 ID、消息 ID、任务 ID 或列表序号；必须逐字复制。集合为空时所有 previous_tag_id 必须为 null。前文摘要不授予引用权限。
 {input_json}
