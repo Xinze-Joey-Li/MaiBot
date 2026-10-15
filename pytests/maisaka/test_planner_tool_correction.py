@@ -35,6 +35,8 @@ def _response(content: str, calls: Optional[List[ToolCall]] = None, reasoning: s
 
 def _engine(group: bool = False) -> MaisakaReasoningEngine:
     runtime = SimpleNamespace(
+        session_id="test-group", session_name="测试群", _decision_replay_turn_id=None,
+        _has_pending_messages=lambda: False,
         _chat_history=[
             ReferenceMessage(
                 content='<message msg_id="real-target">考考你，1+1等于几</message>',

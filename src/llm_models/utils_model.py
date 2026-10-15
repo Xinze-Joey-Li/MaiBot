@@ -966,6 +966,8 @@ class LLMOrchestrator:
     ) -> None:
         """记录一次实际成功的 Provider 调用。"""
 
+        from src.decision_replay.recorder import model_attempt
+        model_attempt(request, response, task=self.task_name, session_id=self.session_id)
         trace_context = request.trace_context
         if trace_context is None:
             return
@@ -1027,6 +1029,8 @@ class LLMOrchestrator:
         def ensure_attempt_snapshot(error: Exception) -> None:
             """确保内置或插件 Provider 的每次失败都有统一快照记录。"""
 
+            from src.decision_replay.recorder import model_attempt
+            model_attempt(active_request, None, task=self.task_name, session_id=self.session_id, failed=True)
             if has_request_snapshot(error):
                 return
             snapshot_path = save_failed_request_snapshot(
@@ -1046,6 +1050,10 @@ class LLMOrchestrator:
                 active_request.trace_context.attempt += 1
                 active_request.trace_context.model_attempt += 1
                 active_request.trace_context.current_attempt_started_at = time.time()
+            from src.decision_replay.recorder import model_attempt
+            model_attempt(active_request, None, task=self.task_name, session_id=self.session_id, started=True)
+            from src.decision_replay.replies import generation_request
+            await generation_request(active_request, self.task_name, self.session_id)
             try:
                 if isinstance(active_request, ResponseRequest):
                     response = await client.get_response(active_request)

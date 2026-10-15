@@ -7,6 +7,7 @@ import json
 import random
 import re
 
+from src.decision_replay.recorder import record
 from src.common.data_models.image_data_model import MaiEmoji
 from src.common.data_models.message_component_data_model import EmojiComponent, MessageSequence
 from src.common.logger import get_logger
@@ -38,6 +39,7 @@ def extract_tag(text: str, candidates: Dict[str, List[MaiEmoji]]) -> Tuple[str, 
     matches = EMOJI_TAG_PATTERN.findall(text)
     selected_tag = matches[-1].strip() if matches else ""
     if selected_tag and selected_tag not in candidates:
+        record("emoji", "emoji.tag", "skipped", "invalid_tag")
         logger.warning(f"Replyer 选择了表情库中不存在的 tag: {selected_tag!r}")
         selected_tag = ""
     return EMOJI_TAG_PATTERN.sub("", text).strip(), selected_tag
@@ -46,11 +48,18 @@ def extract_tag(text: str, candidates: Dict[str, List[MaiEmoji]]) -> Tuple[str, 
 async def send_after_text(stream_id: str, tag: str, context_text: str = "") -> None:
     """每条成功文字独立抽概率，再抽是否命中；没有匹配表情则跳过。"""
     probability = random.uniform(0.30, 0.50)
-    if random.random() >= probability or not tag:
+    hit = random.random() < probability
+    record('emoji', 'emoji.probability', 'pass' if hit and tag else 'skipped',
+           'no_tag' if not tag else ('probability_hit' if hit else 'probability_miss'),
+           session_id=stream_id, detail={'tag':tag, 'probability':probability, 'hit':hit})
+    if not hit or not tag:
         return
     candidates = get_tag_candidates().get(tag, [])
     if not candidates:
+        record('emoji', 'emoji.selection', 'skipped', 'no_candidates', session_id=stream_id)
         return
+    record('emoji', 'emoji.candidates', 'available', 'candidates_found', session_id=stream_id,
+           detail={'candidate_count':len(candidates), 'tag':tag})
     from src.services import send_service
     from .local_selection import select_candidate
 
@@ -70,4 +79,5 @@ async def send_after_text(stream_id: str, tag: str, context_text: str = "") -> N
             maisaka_source_kind="reply_emoji_attachment",
         )
     except Exception:
+        record('emoji', 'emoji.completed', 'failed', 'send_failed', session_id=stream_id)
         logger.exception(f"文字后的表情发送异常: session_id={stream_id} tag={tag!r}")

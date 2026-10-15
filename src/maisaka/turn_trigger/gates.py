@@ -1,14 +1,14 @@
 """Maisaka 消息触发门控。"""
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import List, Literal, Optional, Sequence, Set, TYPE_CHECKING
+from typing import Any, Dict, List, Literal, Optional, Sequence, Set, TYPE_CHECKING
 import time
 
 from src.chat.message_receive.message import SessionMessage
 from src.chat.utils.utils import is_bot_self
 
-from .dynamic_gate import DynamicReplyGate
+from .dynamic_gate import MIN_WINDOW_SCORE_COUNT, DynamicReplyGate
 from .pending_observation import PendingObservation
 from .reply_likelihood import (
     DEFAULT_SECONDS_SINCE_BOT_MESSAGE,
@@ -34,6 +34,7 @@ class TurnGateResult:
     decision: TurnGateDecision
     detail: str
     delay_seconds: Optional[float] = None
+    replay_detail: Optional[Dict[str, Any]] = None
 
     @property
     def should_trigger(self) -> bool:
@@ -95,9 +96,8 @@ class DynamicReplyTurnGate:
                 now,
             )
 
-        score = score_reply_likelihood(
-            self._build_likelihood_input(external_messages, now, pending_messages=external_messages)
-        )
+        likelihood_input = self._build_likelihood_input(external_messages, now, pending_messages=external_messages)
+        score = score_reply_likelihood(likelihood_input)
         gate_decision = self._gate.evaluate(score.probability, frequency, now)
         last_reply_at = max((message.timestamp.timestamp() for message in self._runtime._chat_history
                              if message.source in {"guided_reply", "priority_at_reply", "silence_emoji", "auto_repeat"}),
@@ -108,17 +108,24 @@ class DynamicReplyTurnGate:
             last_reply_at=last_reply_at, gap=gate_decision.threshold - score.probability,
             eligible=allow_observation and not gate_decision.should_trigger,
         )
+        replay_detail = {'features': asdict(likelihood_input), 'contributions': score.contributions,
+                         'logit': score.logit, 'probability': score.probability,
+                         'threshold': gate_decision.threshold,
+                         'threshold_source': 'static_table' if len(self._gate._proactive_scores) < MIN_WINDOW_SCORE_COUNT else 'window_quantile',
+                         'budget': asdict(gate_decision), 'observation': observed,
+                         'observation_delay_seconds': delay, 'contribution_unit': 'logit', 'interest_weights': 'not_integrated'}
         if observed:
             self._gate.close_round()
-            return TurnGateResult(decision="trigger", detail=f"动态门控: {gate_decision.detail} 判定=待观察机会进入Planner")
+            return TurnGateResult(decision="trigger", replay_detail=replay_detail, detail=f"动态门控: {gate_decision.detail} 判定=待观察机会进入Planner")
         if delay is not None:
-            return TurnGateResult(decision="delay", delay_seconds=delay,
+            return TurnGateResult(decision="delay", delay_seconds=delay, replay_detail=replay_detail,
                                   detail=f"动态门控: {gate_decision.detail} 判定=待观察一次 延迟={delay:.0f}s")
         if gate_decision.should_trigger:
             self._gate.close_round()
         decision_label = "进入Planner" if gate_decision.should_trigger else "等待更多消息"
         return TurnGateResult(
             decision="trigger" if gate_decision.should_trigger else "wait",
+            replay_detail=replay_detail,
             detail=f"动态门控: {gate_decision.detail} 权重贡献: [{score.detail}] 判定={decision_label}",
         )
 

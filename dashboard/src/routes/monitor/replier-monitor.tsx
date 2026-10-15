@@ -161,7 +161,7 @@ export function ReplierMonitor({ autoRefresh, refreshKey }: ReplierMonitorProps)
 
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">回复总数</CardTitle>
+                  <CardTitle className="text-sm font-medium">Replyer 日志记录数（旧口径）</CardTitle>
                   <TrendingUp className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>

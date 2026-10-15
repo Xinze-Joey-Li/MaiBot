@@ -8,6 +8,8 @@ import re
 import sqlite3
 import time
 
+from src.decision_replay.recorder import record
+
 DATA_ROOT = Path(__file__).resolve().parents[2] / "data"
 METADATA_PATH = DATA_ROOT / "emoji_selection_metadata.json"
 BUNDLED_METADATA_PATH = DATA_ROOT.parent / "resources" / "qq-agent" / "emoji" / "metadata.json"
@@ -90,6 +92,8 @@ def score_candidate(
 
 def select_candidate(session_id: str, tag: str, candidates: List[Any], context: str) -> Optional[Any]:
     if len(candidates) == 1:
+        record('emoji', 'emoji.selection', 'selected', 'singleton_bypasses_scoring', session_id=session_id,
+               detail={'selected_hash':candidates[0].file_hash,'candidate_count':1,'threshold_applicable':False})
         return candidates[0]
     if not candidates:
         return None
@@ -105,11 +109,22 @@ def select_candidate(session_id: str, tag: str, candidates: List[Any], context: 
     finally:
         connection.close()
     ranked = []
+    replay_scores = []
     for emoji in candidates:
         scores = score_candidate(tag=tag, emotions=_get_emoji_emotions(emoji), description=emoji.description,
                                  metadata=metadata.get(emoji.file_hash, {}), context=context,
                                  sent_at=[stamp for hash_, stamp in history if hash_ == emoji.file_hash], now=now)
         ranked.append((scores["total"], emoji.file_hash, emoji))
+        replay_scores.append({"hash":emoji.file_hash,"scores":scores})
         get_logger("reply_emoji").info(f"表情本地评分: session_id={session_id} hash={emoji.file_hash} scores={scores}")
     best = sorted(ranked, key=lambda item: (-item[0], item[1]))[0]
+    for offset in range(0, len(replay_scores), 100):
+        record('emoji', 'emoji.candidate_scores', 'scored', 'local_scores', session_id=session_id,
+               detail={'candidates':replay_scores[offset:offset+100], 'offset':offset,
+                       'total_candidates':len(replay_scores)})
+    record('emoji', 'emoji.selection', 'selected' if best[0] >= 70 else 'skipped',
+           'score_passed' if best[0] >= 70 else 'score_below_threshold', session_id=session_id,
+           detail={'rankings':sorted(replay_scores,key=lambda v:-v['scores']['total'])[:100],
+                   'candidate_count':len(candidates),'rankings_truncated':len(candidates)>100,
+                   'best_score':best[0],'threshold':70,'selected_hash':best[1] if best[0]>=70 else None})
     return best[2] if best[0] >= 70 else None

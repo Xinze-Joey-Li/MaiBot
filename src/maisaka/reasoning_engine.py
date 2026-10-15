@@ -667,6 +667,9 @@ class MaisakaReasoningEngine:
                 )
             )
             planner_extra_lines.append("状态：声明调用 reply 但未调用，进行一次纠错")
+            from src.decision_replay.recorder import record
+            record("planner", "planner.intent_without_action", "anomaly", "planner_no_tool_retry",
+                   session_id=self._runtime.session_id)
             logger.info(f"{self._runtime.log_prefix} Planner 声明调用 reply 但未调用，进行一次纠错")
             return 1, CycleEnd("planner_no_tool_retry", "Planner 遗漏工具调用，进行一次受限纠错。"), False
 
@@ -773,6 +776,11 @@ class MaisakaReasoningEngine:
                     f"pending={self._runtime._has_pending_messages()} "
                     f"input_tokens={response.prompt_tokens} output_tokens={response.completion_tokens}"
                 )
+            from src.decision_replay.recorder import record
+            record('planner', 'planner.lifecycle', 'end' if mode == 'optimized' and reason else 'continue',
+                   reason or 'unknown_or_required_continuation',
+                   detail={'mode': mode, 'pending_messages': self._runtime._has_pending_messages(),
+                           'tools': [{'name': r.tool_name, 'success': r.success} for r in state.tool_execution_results]})
             if mode == "optimized" and reason:
                 state.cycle_end = CycleEnd("local_actions_completed", "必要动作已完成，本地结束 Planner 回合。")
                 return planner_no_tool_count, True
@@ -986,6 +994,10 @@ class MaisakaReasoningEngine:
         await self._runtime._wait_for_message_quiet_period()
         pending_round_messages = self._runtime._collect_pending_messages()
         if pending_round_messages:
+            from src.decision_replay.recorder import record
+            record('scheduler', 'scheduler.messages_merged', 'merged', 'continuation_messages',
+                   message_ids=[m.message_id for m in pending_round_messages],
+                   detail={'new_message_count':len(pending_round_messages),'round':round_index+1})
             await self._ingest_messages(pending_round_messages)
             logger.info(
                 f"{self._runtime.log_prefix} 内部轮次开始前已合并新消息: "
@@ -998,6 +1010,8 @@ class MaisakaReasoningEngine:
         from src.maisaka.planner_lifecycle import lifecycle_mode
 
         if lifecycle_mode() == "optimized" and self._runtime._has_pending_messages():
+            from src.decision_replay.recorder import record
+            record('scheduler', 'scheduler.regate', 'recheck', 'optimized_pending', session_id=self._runtime.session_id)
             logger.info(f"Planner重新门控: session={self._runtime.session_id} pending=True")
             self._runtime._schedule_message_turn()
 
@@ -1005,6 +1019,10 @@ class MaisakaReasoningEngine:
         """启动一轮内部循环。"""
 
         cycle_detail = self._start_cycle()
+        from src.decision_replay.recorder import cycle, record
+        cycle(cycle_detail.cycle_id)
+        record('planner', 'planner.round_started', 'started', 'internal_round',
+               detail={'round': round_index + 1})
         round_text = f"第 {round_index + 1}/{self._runtime._max_internal_rounds} 轮"
         self._runtime._log_cycle_started(cycle_detail, round_index)
         self._runtime._update_stage_status("启动循环", f"循环 {cycle_detail.cycle_id}", round_text=round_text)
@@ -1180,13 +1198,24 @@ class MaisakaReasoningEngine:
                     continue
 
                 try:
-                    self._active_logical_turn_id = turn_start_context.logical_turn_id or uuid.uuid4().hex
+                    self._active_logical_turn_id = (turn_start_context.logical_turn_id
+                        or self._runtime._decision_replay_turn_id or uuid.uuid4().hex)
+                    from src.decision_replay.recorder import current_trace, new_trace, record
+                    replay_token = current_trace.set(new_trace(
+                        self._runtime.session_id, str(queued_trigger),
+                        self._active_logical_turn_id))
+                    self._runtime._decision_replay_turn_id = None
+                    record('planner', 'planner.started', 'started', 'scheduled',
+                           message_ids=[m.message_id for m in cached_messages],
+                           detail={'session_name': self._runtime.session_name,
+                                   'planner_logical_turn_id': self._active_logical_turn_id})
                     if force_continue_reason := self._runtime._consume_forced_turn_reason():
                         logger.info(f"{self._runtime.log_prefix} {force_continue_reason}")
                     planner_no_tool_count = 0
                     mid_term_reference_refreshed = False
                     round_index = 0
                     is_tool_correction = False
+                    replay_end_reason = "no_cycles"
                     while round_index < self._runtime._max_internal_rounds:
                         # 纠错复用上一请求的真实目标及上下文；新消息仍由原有中断链路处理。
                         pending_round_messages = (
@@ -1257,9 +1286,17 @@ class MaisakaReasoningEngine:
                                 round_index=round_index,
                                 state=state,
                             )
+                            replay_end_reason = state.cycle_end.reason
                             if not state.planner_interrupted:
                                 round_index += 1
                 finally:
+                    from src.decision_replay.recorder import current_trace, record
+                    import sys
+                    error = sys.exc_info()[0]
+                    record('planner', 'turn.ended', 'failed' if error else 'completed',
+                           'cancelled' if error is asyncio.CancelledError else ('exception' if error else replay_end_reason),
+                           detail={'pending_messages': self._runtime._has_pending_messages(),
+                                   'error_type': error.__name__ if error else None})
                     self._clear_planner_no_tool_hints()
                     self._active_logical_turn_id = None
                     from src.maisaka.planner_lifecycle import lifecycle_mode
@@ -1271,6 +1308,7 @@ class MaisakaReasoningEngine:
                     if self._runtime._running:
                         self._runtime._update_stage_status("等待消息", "本轮处理结束")
                         self._regate_pending_after_turn()
+                    current_trace.reset(replay_token)
         except asyncio.CancelledError:
             self._runtime._log_internal_loop_cancelled()
             raise
@@ -2128,6 +2166,12 @@ class MaisakaReasoningEngine:
     ) -> dict[str, Any]:
         """构建 planner.finalized 中单个工具的监控结果。"""
 
+        from src.decision_replay.recorder import record
+        record('tool', 'tool.completed', 'succeeded' if result.success else 'failed',
+               'tool_result', duration_ms=duration_ms,
+               detail={'tool_call_id': tool_call.call_id, 'tool_name': tool_call.func_name,
+                       'planner_task_completed': result.metadata.get('planner_task_completed'),
+                       'continuation_required': result.metadata.get('planner_continuation_required')})
         monitor_detail = result.metadata.get("monitor_detail")
         normalized_detail = None
         if monitor_detail is not None:

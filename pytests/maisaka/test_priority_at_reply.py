@@ -245,6 +245,7 @@ class PriorityAtReplyTest(IsolatedAsyncioTestCase):
                 MessageSequence=list, TextComponent=lambda text: text
             ),
             "src.services.send_service": SimpleNamespace(send_priority_at_reply=sender),
+            "src.services.owner_control_service": SimpleNamespace(handle_owner_command=AsyncMock(return_value=None)),
         }
         target = self.message()
         with patch.dict("sys.modules", modules):
@@ -264,6 +265,7 @@ class PriorityAtReplyTest(IsolatedAsyncioTestCase):
                 MessageSequence=list, TextComponent=str
             ),
             "src.services.send_service": SimpleNamespace(send_priority_at_reply=sender),
+            "src.services.owner_control_service": SimpleNamespace(handle_owner_command=AsyncMock(return_value=None)),
         }
         with patch.dict("sys.modules", modules):
             with self.assertRaisesRegex(RuntimeError, "生成失败"):

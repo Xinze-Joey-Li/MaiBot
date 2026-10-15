@@ -60,7 +60,8 @@ def test_running_messages_regate_after_stop_with_group_isolation(monkeypatch, mo
             _last_processed_index=0, _enqueue_message_turn=Mock())
         service=scheduler.MessageTurnScheduler(runtime)
         service._dynamic_reply_gate=SimpleNamespace(evaluate=Mock(return_value=SimpleNamespace(
-            should_trigger=allowed, detail="test", delay_seconds=None)))
+            should_trigger=allowed, detail="test", delay_seconds=None,
+            decision="trigger" if allowed else "wait", replay_detail=None)))
         service.schedule_message_turn()
         if mode=="optimized":
             service._dynamic_reply_gate.evaluate.assert_not_called()

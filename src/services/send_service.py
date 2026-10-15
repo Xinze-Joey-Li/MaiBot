@@ -18,6 +18,7 @@ import time
 import uuid
 from datetime import datetime
 
+from src.decision_replay.recorder import traced_send
 from src.chat.message_receive.chat_manager import BotChatSession
 from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
 from src.chat.message_receive.message import SessionMessage
@@ -824,6 +825,9 @@ def _log_platform_io_failures(delivery_batch: DeliveryBatch) -> None:
         )
         or "未命中任何发送路由"
     )
+    if not delivery_batch.failed_receipts:
+        logger.info(f"[SendService] Platform IO 未确认或跳过: platform={delivery_batch.route_key.platform}")
+        return
     logger.warning(f"[SendService] Platform IO 发送失败: platform={delivery_batch.route_key.platform} {failed_details}")
 
 
@@ -861,6 +865,8 @@ async def _send_via_platform_io(
     )
     if before_send_result.aborted:
         logger.info(f"[SendService] 消息 {message.message_id} 在发送前被 Hook 中止")
+        from src.decision_replay.replies import skip
+        await skip(message, "before_send_hook_aborted")
         return None
 
     before_kwargs = before_send_result.kwargs
@@ -906,7 +912,11 @@ async def _send_via_platform_io(
         )
         if emoji_key is not None:
             if not group_emoji_gate.acquire(emoji_key):
+                from src.decision_replay.recorder import record
+                record('emoji', 'emoji.cooldown', 'blocked', 'cooldown_blocked', session_id=message.session_id)
                 logger.info(f"[SendService] 群表情处于两分钟冷却或正在发送: {emoji_key}")
+                from src.decision_replay.replies import skip
+                await skip(message, "cooldown_blocked")
                 return None
         # 暖群和独立 @ 表情豁免，不占用或重置冷却；普通表情从平台成功回执开始计时。
         emoji_sent = False
@@ -972,6 +982,7 @@ async def _send_via_platform_io(
 
 
 
+@traced_send
 async def send_session_message_with_message(
     message: SessionMessage,
     *,
@@ -1104,6 +1115,7 @@ async def _send_to_target_with_message(
     selected_expressions: Optional[List[int]] = None,
     sync_to_maisaka_history: bool = False,
     maisaka_source_kind: str = "outbound_send",
+    outbound_message_id: Optional[str] = None,
 ) -> Optional[SessionMessage]:
     """向指定目标构建并发送消息。
 
@@ -1138,6 +1150,8 @@ async def _send_to_target_with_message(
         )
         if outbound_message is None:
             return None
+        if outbound_message_id is not None:
+            outbound_message.message_id = outbound_message_id
 
         after_build_result, outbound_message = await _invoke_send_hook(
             "send_service.after_build_message",
@@ -1151,6 +1165,8 @@ async def _send_to_target_with_message(
         )
         if after_build_result.aborted:
             logger.info(f"[SendService] 消息 {outbound_message.message_id} 在构建后被 Hook 中止")
+            from src.decision_replay.replies import skip
+            await skip(outbound_message, "after_build_hook_aborted")
             return None
 
         after_build_kwargs = after_build_result.kwargs
@@ -1174,7 +1190,11 @@ async def _send_to_target_with_message(
             logger.debug(f"[SendService] 成功发送消息到 {stream_id}")
             return sent_message
 
-        logger.error("[SendService] 发送消息失败")
+        outcome = outbound_message.message_info.additional_config.get("statistics_send_result", "unknown")
+        if outcome == "failed":
+            logger.error("[SendService] 发送消息失败")
+        else:
+            logger.info(f"[SendService] 消息未确认发送: outcome={outcome}")
         return None
     except Exception as exc:
         logger.exception(f"[SendService] 发送消息时出错: {exc}")
@@ -1195,6 +1215,9 @@ async def send_priority_at_reply(
         reply_message_id=target.message_id if set_reply else None, reply_message=target if set_reply else None,
         storage_message=True, sync_to_maisaka_history=True, maisaka_source_kind="priority_at_reply",
     )
+    if message.message_info.additional_config.get("statistics_send_result") == "unknown":
+        from src.decision_replay.replies import DeliveryUncertain
+        raise DeliveryUncertain("@ 消息平台结果未知，不能安全回退或重发")
     return sent_message is not None
 
 

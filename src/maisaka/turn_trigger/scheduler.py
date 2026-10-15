@@ -3,6 +3,7 @@
 from typing import TYPE_CHECKING
 
 from src.common.logger import get_logger
+from src.decision_replay.recorder import probe
 from src.maisaka.focus import focus_mode_manager
 from src.maisaka.mode_policy import is_dynamic_reply_trigger_enabled
 
@@ -19,6 +20,7 @@ class MessageTurnScheduler:
 
     def __init__(self, runtime: "MaisakaHeartFlowChatting") -> None:
         self._runtime = runtime
+        self._replay_signature = None
         self._dynamic_reply_gate = DynamicReplyTurnGate(runtime)
         self._frequency_threshold_gate = FrequencyThresholdTurnGate(runtime)
 
@@ -27,22 +29,47 @@ class MessageTurnScheduler:
 
         self._dynamic_reply_gate.record_reply()
 
+    @probe
+    def _replay(self, decision: str, reason: str, **detail) -> None:
+        from src.decision_replay.recorder import new_trace, record, enabled
+        if not enabled():
+            return
+        runtime = self._runtime
+        ids = [m.message_id for m in runtime.message_cache[runtime._last_processed_index:]]
+        signature = (tuple(ids), decision, reason)
+        if not ids or signature == self._replay_signature:
+            return
+        self._replay_signature = signature
+        trace = new_trace(runtime.session_id)
+        detail.update({'pending_count': len(ids), 'session_name': runtime.session_name})
+        record('message', 'message.received', 'buffered', 'pending_batch', trace=trace, message_ids=ids, detail={'pending_count':len(ids)})
+        record('scheduler', 'turn.started', 'observed', 'external_trigger', trace=trace,
+               message_ids=ids, detail=detail)
+        record('gate', 'gate.decided', decision, reason, trace=trace, message_ids=ids, detail=detail)
+        if decision == 'pass':
+            runtime._decision_replay_turn_id = trace.logical_turn_id
+        else:
+            record('scheduler', 'turn.ended', 'waiting', reason, trace=trace)
+
     def schedule_message_turn(self) -> None:
         runtime = self._runtime
         from src.maisaka.planner_lifecycle import lifecycle_mode
 
         if lifecycle_mode() == "optimized" and runtime._agent_state == runtime._STATE_RUNNING:
+            self._replay('deferred', 'active_turn_buffers_messages')
             return
         if not focus_mode_manager.can_decide(
             runtime.session_id,
             is_group_chat=runtime.chat_stream.is_group_session,
         ):
+            self._replay("reject", "focus_unavailable")
             logger.debug(f"{runtime.log_prefix} 当前不在 focus 状态，跳过 Maisaka 决策调度")
             return
 
         if runtime._agent_state == runtime._STATE_WAIT:
             if not runtime._is_reply_frequency_silent():
                 if runtime.chat_stream.is_group_session:
+                    self._replay("deferred", "group_wait_active")
                     return
                 logger.info(f"{runtime.log_prefix} 私聊 wait 期间收到新消息，结束等待并进入 Planner")
                 runtime._enter_running_state()
@@ -63,10 +90,12 @@ class MessageTurnScheduler:
                 f"{runtime.log_prefix} 回复频率调度: 频率={formatted_frequency} "
                 f"pending={pending_count} 判定=静默消费"
             )
+            self._replay("reject", "silent_frequency", frequency=effective_frequency)
             runtime._enqueue_message_turn()
             return
 
         if runtime._has_forced_turn_trigger():
+            self._replay("pass", "forced_trigger", frequency=effective_frequency)
             # @ 强制触发的回复同样占用动态门控的回复额度
             self._dynamic_reply_gate.record_forced_turn(runtime.message_cache[runtime._last_processed_index :])
             logger.info(
@@ -77,6 +106,7 @@ class MessageTurnScheduler:
             return
 
         if runtime._idle_backoff.should_delay(pending_count):
+            self._replay("deferred", "idle_backoff", frequency=effective_frequency)
             return
 
         if is_dynamic_reply_trigger_enabled():
@@ -89,6 +119,10 @@ class MessageTurnScheduler:
                 f"{runtime.log_prefix} 回复频率调度: [频率: {formatted_frequency}][{pending_count} 消息] "
                 f"{dynamic_result.detail}"
             )
+            self._replay('pass' if dynamic_result.should_trigger else 'reject',
+                         'dynamic_' + dynamic_result.decision, frequency=effective_frequency,
+                         delay_seconds=dynamic_result.delay_seconds,
+                         **(dynamic_result.replay_detail or {}))
             if dynamic_result.should_trigger:
                 runtime._enqueue_message_turn()
             elif dynamic_result.delay_seconds is not None:
@@ -104,6 +138,9 @@ class MessageTurnScheduler:
             trigger_threshold=trigger_threshold,
         )
         logger.info(f"{runtime.log_prefix} 回复频率调度: {frequency_result.detail}")
+        self._replay('pass' if frequency_result.should_trigger else 'reject',
+                     'frequency_' + frequency_result.decision, frequency=effective_frequency,
+                     threshold=trigger_threshold, delay_seconds=frequency_result.delay_seconds)
         if frequency_result.should_trigger:
             runtime._enqueue_message_turn()
             return

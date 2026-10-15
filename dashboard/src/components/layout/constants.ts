@@ -48,6 +48,7 @@ export const menuSections: MenuSection[] = [
         searchDescription: 'search.items.homeDesc',
       },
       { icon: LocalChatIcon, label: 'workspace.chat', path: '/chat' },
+      { icon: ReplyEffectsIcon, label: 'sidebar.menu.decisionReplay', path: '/decision-replay' },
     ],
   },
   {

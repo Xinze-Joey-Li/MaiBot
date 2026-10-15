@@ -55,6 +55,8 @@ vi.mock('@/routes/resource/behavior/index.tsx', () => ({ BehaviorLearningPage: S
 vi.mock('@/routes/resource/knowledge-graph/index.tsx', () => ({ KnowledgeGraphPage: StubPage }))
 vi.mock('@/routes/resource/knowledge-base', () => ({ KnowledgeBasePage: StubPage }))
 vi.mock('@/routes/monitor/index.tsx', () => ({ PlannerMonitorPage: StubPage }))
+vi.mock('@/routes/monitor/decision-replay', () => ({ DecisionReplayPage: StubPage }))
+vi.mock('@/routes/tag-memory', () => ({ TagMemoryPage: StubPage }))
 vi.mock('@/routes/chat/index', () => ({ ChatPage: StubPage }))
 vi.mock('@/routes/chat-management', () => ({ ChatManagementPage: StubPage }))
 vi.mock('@/routes/chat/embed', () => ({ ChatEmbedPage: StubPage }))
@@ -106,6 +108,8 @@ const expectedPaths = [
   '/logs',
   '/reasoning-process',
   '/planner-monitor',
+  '/decision-replay',
+  '/resource/tag-memory',
   '/chat-management',
   '/chat',
   '/settings',

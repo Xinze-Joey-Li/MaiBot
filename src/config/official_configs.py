@@ -5070,6 +5070,14 @@ class TelemetryConfig(ConfigBase):
 class DebugConfig(ConfigBase):
     """调试配置类"""
 
+    decision_replay_enabled: bool = Field(default=True, json_schema_extra={
+        "label": {"zh_CN":"启用决策回放","en_US":"Enable Decision Replay","ja_JP":"意思決定リプレイを有効化"},
+        "x-widget":"switch"})
+    """持久化决策回放，不复制正文或完整 Prompt，不增加模型请求。"""
+    decision_replay_retention_days: int = Field(default=7, ge=1, le=365, json_schema_extra={
+        "label": {"zh_CN":"决策回放保留天数","en_US":"Decision Replay retention days","ja_JP":"意思決定リプレイ保持日数"}})
+    """决策回放独立保留天数。"""
+
     __ui_parent__ = "log"
     __ui_label__ = "其他"
 

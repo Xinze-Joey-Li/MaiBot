@@ -1208,7 +1208,7 @@ class StatisticOutputTask(AsyncTask):
         # 计算token/时间指标（token/小时）
         tokens_per_hour = (total_tokens / online_hours) if online_hours > 0 else 0.0
 
-        # 计算花费/回复数量指标（每100条）
+        # 计算花费/reply 工具记录（旧口径）指标（每100条）
         total_replies = stats.get(TOTAL_REPLY_CNT, 0)
         cost_per_100_replies = (stats[TOTAL_COST] / total_replies * 100) if total_replies > 0 else 0.0
 
@@ -1223,7 +1223,7 @@ class StatisticOutputTask(AsyncTask):
         output = [
             f"总在线时间: {_format_online_time(int(stats[ONLINE_TIME]))}",
             f"总消息数: {_format_large_number(stats[TOTAL_MSG_CNT])}",
-            f"总回复数: {_format_large_number(total_replies)}",
+            f"reply 工具记录数（旧口径）: {_format_large_number(total_replies)}",
             f"总请求数: {_format_large_number(stats[TOTAL_REQ_CNT])}",
             f"总Token数: {_format_large_number(total_tokens)}",
             f"总输入Token: {_format_large_number(total_input_tokens)}",
@@ -1236,7 +1236,7 @@ class StatisticOutputTask(AsyncTask):
             f"花费/接受消息数量: {cost_per_100_messages_excluding_replies:.4f}¥/100条"
             if total_messages_excluding_replies > 0
             else "花费/消息数量(排除回复): N/A",
-            f"花费/回复消息数量: {cost_per_100_replies:.4f}¥/100条" if total_replies > 0 else "花费/回复数量: N/A",
+            f"花费/reply 工具记录（旧口径）: {cost_per_100_replies:.4f}¥/100条" if total_replies > 0 else "花费/reply 工具记录（旧口径）: N/A",
             f"花费/时间: {cost_per_hour:.2f}¥/小时" if online_hours > 0 else "花费/时间: N/A",
             f"Token/时间: {_format_large_number(tokens_per_hour)}/小时" if online_hours > 0 else "Token/时间: N/A",
             "",
@@ -1813,7 +1813,7 @@ class StatisticOutputTask(AsyncTask):
                         <div class=\"kpi-value\">{_format_large_number(stat_data[TOTAL_MSG_CNT], html=True)}</div>
                     </div>
                     <div class=\"kpi-card\">
-                        <div class=\"kpi-title\">总回复数</div>
+                        <div class=\"kpi-title\">reply 工具记录数（旧口径）</div>
                         <div class=\"kpi-value\">{_format_large_number(stat_data.get(TOTAL_REPLY_CNT, 0), html=True)}</div>
                     </div>
                     <div class=\"kpi-card\">
@@ -1857,7 +1857,7 @@ class StatisticOutputTask(AsyncTask):
                         <div class=\"kpi-value\">{(stat_data[TOTAL_COST] / (stat_data[TOTAL_MSG_CNT] - stat_data.get(TOTAL_REPLY_CNT, 0)) * 100 if (stat_data[TOTAL_MSG_CNT] - stat_data.get(TOTAL_REPLY_CNT, 0)) > 0 else 0.0):.4f} ¥/100条</div>
                     </div>
                     <div class=\"kpi-card\">
-                        <div class=\"kpi-title\">花费/回复数量</div>
+                        <div class=\"kpi-title\">花费/reply 工具记录（旧口径）</div>
                         <div class=\"kpi-value\">{(stat_data[TOTAL_COST] / stat_data.get(TOTAL_REPLY_CNT, 0) * 100 if stat_data.get(TOTAL_REPLY_CNT, 0) > 0 else 0.0):.4f} ¥/100条</div>
                     </div>
                     <div class=\"kpi-card\">
@@ -2930,7 +2930,7 @@ class StatisticOutputTask(AsyncTask):
         cost_per_100_messages = [0.0] * len(time_points)  # 花费/消息数量（每100条）
         cost_per_hour = [0.0] * len(time_points)  # 花费/时间（每小时）
         tokens_per_hour = [0.0] * len(time_points)  # Token/时间（每小时）
-        cost_per_100_replies = [0.0] * len(time_points)  # 花费/回复数量（每100条）
+        cost_per_100_replies = [0.0] * len(time_points)  # 花费/reply 工具记录（旧口径）（每100条）
 
         # 每个时间点的累计数据
         total_costs = [0.0] * len(time_points)
@@ -3007,7 +3007,7 @@ class StatisticOutputTask(AsyncTask):
             if total_online_hours[idx] > 0:
                 tokens_per_hour[idx] = total_tokens[idx] / total_online_hours[idx]
 
-            # 花费/回复数量（每100条）
+            # 花费/reply 工具记录（旧口径）（每100条）
             if total_replies[idx] > 0:
                 cost_per_100_replies[idx] = total_costs[idx] / total_replies[idx] * 100
 
@@ -3113,7 +3113,7 @@ class StatisticOutputTask(AsyncTask):
                     }},
                     costPer100Replies: {{
                         id: 'costPer100RepliesChart',
-                        title: '花费/回复数量',
+                        title: '花费/机器人消息记录（旧口径）',
                         yAxisLabel: '花费 (¥/100条)',
                         dataKey: 'cost_per_100_replies',
                         color: '{colors["cost_per_100_replies"]}'

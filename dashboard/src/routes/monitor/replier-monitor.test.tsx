@@ -157,7 +157,7 @@ describe('ReplierMonitor 总览视图', () => {
     // 统计卡片数值
     expect(screen.getByText('聊天数量')).toBeInTheDocument()
     expect(screen.getByText('3')).toBeInTheDocument()
-    expect(screen.getByText('回复总数')).toBeInTheDocument()
+    expect(screen.getByText('Replyer 日志记录数（旧口径）')).toBeInTheDocument()
     expect(screen.getByText('34')).toBeInTheDocument()
     // 命中映射显示聊天名称，未命中回退为 chat_id
     expect(screen.getByText('测试群')).toBeInTheDocument()

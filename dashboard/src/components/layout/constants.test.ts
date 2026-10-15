@@ -37,6 +37,10 @@ describe('menuSections 菜单结构', () => {
     for (const item of allItems) {
       if (item.path === '/chat') {
         expect(item.label).toBe('workspace.chat')
+      } else if (item.path === '/resource/tag-memory') {
+        // Existing literal-label entries intentionally bypass translation keys.
+        expect(item.label).toBe('标签记忆')
+        expect(item.literalLabel).toBe(true)
       } else {
         expect(item.label).toMatch(/^sidebar\.menu\./)
       }

@@ -70,6 +70,7 @@
       "mcpSettings": "MCP Settings",
       "dataTransfer": "Data Management",
       "statistics": "Detailed Statistics",
+      "decisionReplay": "Decision Replay",
       "replyEffects": "Reply Effects",
       "logViewer": "Log Viewer",
       "reasoningProcess": "Reasoning Process",
@@ -120,7 +121,7 @@
     "summary": {
       "onlineTime": "Total uptime",
       "messages": "Messages",
-      "replies": "Replies",
+      "replies": "reply tool records (legacy)",
       "requests": "Requests",
       "tokens": "Total tokens",
       "inputTokens": "Input tokens",
@@ -131,7 +132,7 @@
       "totalCost": "Total cost",
       "costPerMessages": "Cost/messages",
       "costPerReceivedMessages": "Cost/received messages",
-      "costPerReplies": "Cost/replies",
+      "costPerReplies": "Cost/reply tool record (legacy)",
       "costPerHour": "Cost/hour",
       "tokensPerHour": "Tokens/hour"
     },
@@ -151,8 +152,8 @@
       "cost": "Total cost",
       "avgTime": "Average time",
       "stdTime": "Time deviation",
-      "callsPerReply": "Calls per reply",
-      "tokensPerReply": "Tokens per reply",
+      "callsPerReply": "Calls per reply tool record (legacy)",
+      "tokensPerReply": "Tokens per reply tool record (legacy)",
       "tokensPerCall": "Tokens per call",
       "chat": "Contact/group",
       "messages": "Messages"
@@ -188,7 +189,7 @@
       "costPerMessages": "Cost per message trend",
       "costPerHour": "Cost per hour trend",
       "tokensPerHour": "Tokens per hour trend",
-      "costPerReplies": "Cost per reply trend"
+      "costPerReplies": "Cost per bot message trend (legacy)"
     }
   },
   "workspace": {
@@ -1487,7 +1488,7 @@
       "recentPeriod": "Last {{range}}",
       "perHour": "{{value}}/hr",
       "noData": "No data",
-      "replied": "{{num}} replies",
+      "replied": "{{num}} messages with reply references (legacy)",
       "per100Messages": "Per 100 messages",
       "seconds": "sec",
       "hours": "hours",

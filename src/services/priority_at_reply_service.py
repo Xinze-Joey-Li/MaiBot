@@ -6,6 +6,9 @@ from typing import Deque, Dict, List, Set, Tuple, TYPE_CHECKING
 import asyncio
 import random
 
+from src.decision_replay.replies import DeliveryUncertain, priority_action
+from src.decision_replay.recorder import Trace, priority_cancel_queued, priority_queued, traced_priority
+
 if TYPE_CHECKING:
     from src.chat.message_receive.message import SessionMessage
     from src.maisaka.context.messages import LLMContextMessage
@@ -30,6 +33,7 @@ class PriorityAtReplyService:
         self._running_per_session: Dict[str, int] = {}
         self._closing = False
         self._tasks: Dict[Tuple[str, str], asyncio.Task] = {}
+        self._replay_traces: Dict[Tuple[str, str], Trace] = {}
         self._seen: Set[Tuple[str, str]] = set()
         self._seen_order: Deque[Tuple[str, str]] = deque()
 
@@ -66,8 +70,10 @@ class PriorityAtReplyService:
                 f"@ 优先回复过载，拒绝本次入队: session_id={message.session_id} message_id={message.message_id} "
                 f"running={len(self._tasks)} pending={len(self._pending)} session_pending={queued_for_session}"
             )
+            priority_queued(self, message, overloaded=True)
             # 拒绝项不写入去重缓存，平台稍后重投仍可重新接纳；不额外创建发送任务。
             return False
+        priority_queued(self, message)
         self._seen.add(key)
         self._seen_order.append(key)
         while len(self._seen_order) > 2000:
@@ -101,6 +107,7 @@ class PriorityAtReplyService:
         from src.common.logger import get_logger
 
         self._tasks.pop(key, None)
+        self._replay_traces.pop(key, None)
         running = self._running_per_session[key[0]] - 1
         if running:
             self._running_per_session[key[0]] = running
@@ -116,17 +123,28 @@ class PriorityAtReplyService:
                 exc_info=(type(error), error, error.__traceback__),
             )
 
+    @traced_priority
+    @priority_action
     async def _reply(
         self,
         message: "SessionMessage",
         runtime: "MaisakaHeartFlowChatting",
         history: List["LLMContextMessage"],
     ) -> None:
-        if self._is_standalone_bot_at(message) and random.random() < 0.5:
+        from src.decision_replay.recorder import record
+        standalone = self._is_standalone_bot_at(message)
+        emoji_branch = standalone and random.random() < 0.5
+        record('emoji', 'emoji.priority_branch', 'emoji' if emoji_branch else 'text',
+               'priority_at_random' if standalone else 'priority_at_text',
+               detail={'probability':0.5 if standalone else None,'hit':emoji_branch,'cooldown_exempt':True})
+        if emoji_branch:
             try:
                 await self._send_emoji(message)
                 return
+            except DeliveryUncertain:
+                raise
             except Exception:
+                record("emoji", "emoji.priority_fallback", "failed", "fixed_emoji_unavailable")
                 from src.common.logger import get_logger
 
                 get_logger("priority_at_reply").exception(
@@ -173,6 +191,9 @@ class PriorityAtReplyService:
                 raise RuntimeError(f"@ 固定表情未注册或不可用: {emoji_hash}")
             emojis.append(emoji)
         emoji = random.choice(emojis)
+        from src.decision_replay.recorder import record
+        record('emoji', 'emoji.selection', 'selected', 'priority_fixed_random',
+               detail={'candidate_count':len(emojis),'selected_hash':emoji.file_hash,'cooldown_exempt':True})
         image_bytes = await asyncio.to_thread(lambda: resolve_stored_image_path(emoji.full_path).read_bytes())
         sequence = MessageSequence([EmojiComponent(binary_hash=emoji.file_hash, binary_data=image_bytes)])
         if not await send_priority_at_reply(sequence, message, set_reply=False):
@@ -210,6 +231,7 @@ class PriorityAtReplyService:
 
     async def shutdown(self) -> None:
         self._closing = True
+        priority_cancel_queued(self)
         self._pending.clear()
         self._pending_keys.clear()
         tasks = list(self._tasks.values())
@@ -221,6 +243,7 @@ class PriorityAtReplyService:
         self._running_per_session.clear()
         self._seen.clear()
         self._seen_order.clear()
+        self._replay_traces.clear()
 
 
 priority_at_reply_service = PriorityAtReplyService()

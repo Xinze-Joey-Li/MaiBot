@@ -212,6 +212,12 @@ const plannerMonitorRoute = createRoute({
   component: lazyRouteComponent(() => import('./routes/monitor/index.tsx'), 'PlannerMonitorPage'),
 })
 
+const decisionReplayRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: '/decision-replay',
+  component: lazyRouteComponent(() => import('./routes/monitor/decision-replay'), 'DecisionReplayPage'),
+})
+
 // 本地聊天室路由
 const chatRoute = createRoute({
   getParentRoute: () => protectedRoute,
@@ -405,6 +411,7 @@ const routeTree = rootRoute.addChildren([
     logsRoute,
     reasoningProcessRoute,
     plannerMonitorRoute,
+    decisionReplayRoute,
     chatManagementRoute,
     chatRoute,
     settingsRoute,

@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional
 
 import asyncio
 
+from src.decision_replay.replies import platform_send
 from src.common.logger import get_logger
 from src.core.local_operator import LOCAL_PLATFORM_BOT_IDS
 from src.platform_io.drivers.base import PlatformIODriver
@@ -513,6 +514,7 @@ class PlatformIOManager:
         except Exception:
             logger.exception("Platform IO 入站消息后台分发失败")
 
+    @platform_send
     async def send_message(
         self,
         message: "SessionMessage",
@@ -555,18 +557,27 @@ class PlatformIOManager:
                 )
                 continue
 
+            from src.decision_replay.replies import emit, outbound_id, classify, receipt as observe_receipt
+            import uuid
+            attempt_id = uuid.uuid4().hex
+            await emit("send_attempt", attempt_id, detail={"attempt_id": attempt_id,
+                "outbound_message_id": outbound_id(message), "content_type": classify(message), "driver_id": driver.driver_id})
             try:
                 receipt = await driver.send_message(message=message, route_key=route_key, metadata=metadata)
-            except Exception as exc:
+            except BaseException as exc:
                 receipt = DeliveryReceipt(
                     internal_message_id=message.message_id,
                     route_key=route_key,
-                    status=DeliveryStatus.FAILED,
+                    status=DeliveryStatus.UNKNOWN,
                     driver_id=driver.driver_id,
                     driver_kind=driver.descriptor.kind,
-                    error=str(exc),
+                    error=type(exc).__name__,
                 )
+                if isinstance(exc, BaseException) and not isinstance(exc, Exception):
+                    await observe_receipt(message, route_key, receipt, attempt_id)
+                    raise
 
+            await observe_receipt(message, route_key, receipt, attempt_id)
             self._outbound_tracker.finish_tracking(receipt)
             receipts.append(receipt)
 

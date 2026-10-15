@@ -7,6 +7,7 @@ import asyncio
 import json
 import traceback
 
+from src.decision_replay.replies import current_reply, planner_action
 from src.chat.replyer.replyer_manager import replyer_manager
 from src.chat.utils.utils import is_bot_self
 from src.cli.maisaka_cli_sender import CLI_PLATFORM_NAME, render_cli_message
@@ -327,6 +328,7 @@ def _with_duplicate_target_reply_reminder(
     return updated_args
 
 
+@planner_action
 async def handle_tool(
     tool_ctx: BuiltinToolRuntimeContext,
     invocation: ToolInvocation,
@@ -391,6 +393,9 @@ async def handle_tool(
         reply_message_id=target_message_id,
         call_id=invocation.call_id,
     )
+    statistics_reply = current_reply.get()
+    if statistics_reply is not None:
+        extension_execution.reply_id = statistics_reply.reply_id
     if invocation_arguments.get("plugin_options"):
         extension_execution.context.is_group_chat = tool_ctx.runtime.chat_stream.is_group_session
         extension_execution.context.group_id = tool_ctx.runtime.chat_stream.group_id
@@ -548,10 +553,21 @@ async def handle_tool(
     combined_reply_text = "".join(reply_segments)
     reply_result.completion.response_text = combined_reply_text
     reply_result.text_fragments = reply_segments
+    from src.decision_replay.recorder import record
+    record('replyer', 'replyer.postprocessed', 'completed', 'segments_prepared',
+           session_id=tool_ctx.runtime.session_id,
+           message_ids=[target_message_id] if target_message_id else [],
+           detail={'segment_count':len(reply_segments),'plugin_extension_used':bool(extension_execution.targets),
+                   'attachment_tag_available':bool(reply_result.selected_emoji_tag)})
     reply_result.monitor_detail = build_reply_monitor_detail(reply_result)
     reply_metadata = _build_monitor_metadata(reply_result, extension_execution.reply_id)
     if extension_execution.targets:
         reply_metadata["reply_extensions"] = list(extension_execution.parameters)
+    from src.decision_replay.replies import emit, classify_sequence, component_flags
+    for index, sequence in enumerate(reply_sequences):
+        await emit("message_planned", f"{extension_execution.reply_id}:text:{index}", detail={
+            "outbound_message_id": f"{extension_execution.reply_id}:text:{index}",
+            "content_type": classify_sequence(sequence), "optional": False, **component_flags(sequence)})
     sent_message_ids: list[str] = []
     send_results: list[dict[str, Any]] = []
     try:
@@ -582,6 +598,7 @@ async def handle_tool(
                 )
                 sent_message = await send_service._send_to_target_with_message(
                     message_sequence=reply_sequence,
+                    outbound_message_id=f"{extension_execution.reply_id}:text:{index}",
                     stream_id=tool_ctx.runtime.session_id,
                     processed_plain_text=segment,
                     set_reply=segment_set_quote,

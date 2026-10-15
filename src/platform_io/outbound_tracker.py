@@ -185,6 +185,8 @@ class OutboundTracker:
                 expires_at=expires_at,
             )
             heapq.heappush(self._receipt_expire_heap, (expires_at, receipt.external_message_id))
+        from src.decision_replay.replies import receipt_observed
+        receipt_observed(receipt)
         return pending_record
 
     def get_pending(

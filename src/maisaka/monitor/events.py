@@ -368,6 +368,8 @@ async def _broadcast(event: str, data: Dict[str, Any]) -> None:
     try:
         from src.webui.routers.websocket.manager import websocket_manager
 
+        from src.decision_replay.recorder import observe_monitor_event
+        observe_monitor_event(event, data)
         data = _enrich_session_identity(data)
         # 写库分配 event_id 与广播须在同一临界区内完成，保证前端按 event_id 递增收到事件；
         # 否则并发广播可能乱序，前端补发游标越过尚未送达的事件，断线重连后该事件永久丢失。

@@ -1,0 +1,1046 @@
+{
+  "data_origin": "synthetic_test_fixture_not_real_QQ_or_billing",
+  "events": [
+    {
+      "event_id": "synthetic-1",
+      "timestamp": 1792017070.4941804,
+      "session_id": "synthetic-group",
+      "logical_turn_id": "synthetic-turn",
+      "source": "message",
+      "cycle_id": null,
+      "request_id": null,
+      "message_ids": [
+        "synthetic-input"
+      ],
+      "stage": "message",
+      "event_type": "message.received",
+      "decision": "buffered",
+      "reason_code": "pending_batch",
+      "detail": {
+        "synthetic": true,
+        "session_name": "测试群（虚构）",
+        "pending_count": 1
+      },
+      "duration_ms": null,
+      "schema_version": 1
+    },
+    {
+      "event_id": "synthetic-2",
+      "timestamp": 1792017070.5941803,
+      "session_id": "synthetic-group",
+      "logical_turn_id": "synthetic-turn",
+      "source": "message",
+      "cycle_id": null,
+      "request_id": null,
+      "message_ids": [
+        "synthetic-input"
+      ],
+      "stage": "gate",
+      "event_type": "gate.decided",
+      "decision": "pass",
+      "reason_code": "dynamic_trigger",
+      "detail": {
+        "synthetic": true,
+        "probability": 0.82,
+        "threshold": 0.336,
+        "contribution_unit": "logit",
+        "logit": 1.516,
+        "contributions": {
+          "intercept": -1.2005,
+          "other_synthetic_contributions": 2.7165
+        }
+      },
+      "duration_ms": null,
+      "schema_version": 1
+    },
+    {
+      "event_id": "synthetic-3",
+      "timestamp": 1792017070.6941805,
+      "session_id": "synthetic-group",
+      "logical_turn_id": "synthetic-turn",
+      "source": "message",
+      "cycle_id": "1",
+      "request_id": null,
+      "message_ids": [
+        "synthetic-input"
+      ],
+      "stage": "planner",
+      "event_type": "planner.started",
+      "decision": "started",
+      "reason_code": "scheduled",
+      "detail": {
+        "synthetic": true
+      },
+      "duration_ms": null,
+      "schema_version": 1
+    },
+    {
+      "event_id": "synthetic-4",
+      "timestamp": 1792017070.7941804,
+      "session_id": "synthetic-group",
+      "logical_turn_id": "synthetic-turn",
+      "source": "message",
+      "cycle_id": "1",
+      "request_id": null,
+      "message_ids": [
+        "synthetic-input"
+      ],
+      "stage": "planner",
+      "event_type": "planner.round_started",
+      "decision": "started",
+      "reason_code": "internal_round",
+      "detail": {
+        "synthetic": true,
+        "round": 1
+      },
+      "duration_ms": null,
+      "schema_version": 1
+    },
+    {
+      "event_id": "synthetic-5",
+      "timestamp": 1792017070.8941805,
+      "session_id": "synthetic-group",
+      "logical_turn_id": "synthetic-turn",
+      "source": "message",
+      "cycle_id": "1",
+      "request_id": "demo-planner:1",
+      "message_ids": [],
+      "stage": "model",
+      "event_type": "model.request",
+      "decision": "started",
+      "reason_code": "request_started",
+      "detail": {
+        "synthetic": true,
+        "model": "synthetic-model",
+        "task": "planner"
+      },
+      "duration_ms": null,
+      "schema_version": 1
+    },
+    {
+      "event_id": "synthetic-6",
+      "timestamp": 1792017070.9941804,
+      "session_id": "synthetic-group",
+      "logical_turn_id": "synthetic-turn",
+      "source": "message",
+      "cycle_id": "1",
+      "request_id": "demo-planner:1",
+      "message_ids": [],
+      "stage": "model",
+      "event_type": "model.request",
+      "decision": "succeeded",
+      "reason_code": "provider_response",
+      "detail": {
+        "synthetic": true,
+        "model": "synthetic-model",
+        "task": "planner",
+        "input_tokens": 800,
+        "output_tokens": 30,
+        "cache_hit_tokens": 600,
+        "cache_miss_tokens": 200,
+        "cost": 0.0007,
+        "usage_source": "synthetic_fixture"
+      },
+      "duration_ms": null,
+      "schema_version": 1
+    },
+    {
+      "event_id": "synthetic-7",
+      "timestamp": 1792017071.0941803,
+      "session_id": "synthetic-group",
+      "logical_turn_id": "synthetic-turn",
+      "source": "message",
+      "cycle_id": "1",
+      "request_id": null,
+      "message_ids": [],
+      "stage": "replyer",
+      "event_type": "replyer.started",
+      "decision": "started",
+      "reason_code": "generation_requested",
+      "detail": {
+        "synthetic": true
+      },
+      "duration_ms": null,
+      "schema_version": 1
+    },
+    {
+      "event_id": "synthetic-8",
+      "timestamp": 1792017071.1941805,
+      "session_id": "synthetic-group",
+      "logical_turn_id": "synthetic-turn",
+      "source": "message",
+      "cycle_id": "1",
+      "request_id": null,
+      "message_ids": [],
+      "stage": "memory",
+      "event_type": "memory.injected",
+      "decision": "injected",
+      "reason_code": "context_reference",
+      "detail": {
+        "synthetic": true,
+        "tag_ids": [
+          "synthetic-tag"
+        ],
+        "target": "replyer"
+      },
+      "duration_ms": null,
+      "schema_version": 1
+    },
+    {
+      "event_id": "synthetic-9",
+      "timestamp": 1792017071.2941804,
+      "session_id": "synthetic-group",
+      "logical_turn_id": "synthetic-turn",
+      "source": "message",
+      "cycle_id": "1",
+      "request_id": "demo-replyer:1",
+      "message_ids": [],
+      "stage": "model",
+      "event_type": "model.request",
+      "decision": "succeeded",
+      "reason_code": "provider_response",
+      "detail": {
+        "synthetic": true,
+        "model": "synthetic-model",
+        "task": "replyer",
+        "input_tokens": 400,
+        "output_tokens": 50,
+        "cache_hit_tokens": 300,
+        "cache_miss_tokens": 100,
+        "cost": 0.0003,
+        "usage_source": "synthetic_fixture"
+      },
+      "duration_ms": null,
+      "schema_version": 1
+    },
+    {
+      "event_id": "synthetic-10",
+      "timestamp": 1792017071.3941805,
+      "session_id": "synthetic-group",
+      "logical_turn_id": "synthetic-turn",
+      "source": "message",
+      "cycle_id": "1",
+      "request_id": null,
+      "message_ids": [],
+      "stage": "replyer",
+      "event_type": "replyer.completed",
+      "decision": "succeeded",
+      "reason_code": "generated",
+      "detail": {
+        "synthetic": true,
+        "segment_count": 1,
+        "has_valid_text": true,
+        "selected_emoji_tag": "开心"
+      },
+      "duration_ms": null,
+      "schema_version": 1
+    },
+    {
+      "event_id": "synthetic-11",
+      "timestamp": 1792017071.4941804,
+      "session_id": "synthetic-group",
+      "logical_turn_id": "synthetic-turn",
+      "source": "message",
+      "cycle_id": "1",
+      "request_id": null,
+      "message_ids": [],
+      "stage": "replyer",
+      "event_type": "replyer.postprocessed",
+      "decision": "completed",
+      "reason_code": "segments_prepared",
+      "detail": {
+        "synthetic": true,
+        "segment_count": 1
+      },
+      "duration_ms": null,
+      "schema_version": 1
+    },
+    {
+      "event_id": "synthetic-12",
+      "timestamp": 1792017071.5941803,
+      "session_id": "synthetic-group",
+      "logical_turn_id": "synthetic-turn",
+      "source": "message",
+      "cycle_id": "1",
+      "request_id": null,
+      "message_ids": [
+        "synthetic-output"
+      ],
+      "stage": "send",
+      "event_type": "send.completed",
+      "decision": "sent",
+      "reason_code": "sent",
+      "detail": {
+        "synthetic": true,
+        "has_text": true,
+        "has_emoji": false
+      },
+      "duration_ms": null,
+      "schema_version": 1
+    },
+    {
+      "event_id": "synthetic-13",
+      "timestamp": 1792017071.6941805,
+      "session_id": "synthetic-group",
+      "logical_turn_id": "synthetic-turn",
+      "source": "message",
+      "cycle_id": "1",
+      "request_id": null,
+      "message_ids": [],
+      "stage": "emoji",
+      "event_type": "emoji.probability",
+      "decision": "pass",
+      "reason_code": "probability_hit",
+      "detail": {
+        "synthetic": true,
+        "tag": "开心",
+        "probability": 0.4,
+        "hit": true
+      },
+      "duration_ms": null,
+      "schema_version": 1
+    },
+    {
+      "event_id": "synthetic-14",
+      "timestamp": 1792017071.7941804,
+      "session_id": "synthetic-group",
+      "logical_turn_id": "synthetic-turn",
+      "source": "message",
+      "cycle_id": "1",
+      "request_id": null,
+      "message_ids": [],
+      "stage": "emoji",
+      "event_type": "emoji.selection",
+      "decision": "selected",
+      "reason_code": "score_passed",
+      "detail": {
+        "synthetic": true,
+        "candidate_count": 2,
+        "best_score": 100,
+        "threshold": 70,
+        "selected_hash": "synthetic-hash",
+        "rankings": [
+          {
+            "hash": "synthetic-hash",
+            "scores": {
+              "emotion": 55,
+              "context": 25,
+              "useWhen": 15,
+              "quality": 5,
+              "time_penalty": 0,
+              "frequency_penalty": 0,
+              "total": 100
+            }
+          }
+        ]
+      },
+      "duration_ms": null,
+      "schema_version": 1
+    },
+    {
+      "event_id": "synthetic-15",
+      "timestamp": 1792017071.8941805,
+      "session_id": "synthetic-group",
+      "logical_turn_id": "synthetic-turn",
+      "source": "message",
+      "cycle_id": "1",
+      "request_id": null,
+      "message_ids": [
+        "synthetic-emoji-output"
+      ],
+      "stage": "send",
+      "event_type": "send.completed",
+      "decision": "sent",
+      "reason_code": "sent",
+      "detail": {
+        "synthetic": true,
+        "has_text": false,
+        "has_emoji": true
+      },
+      "duration_ms": null,
+      "schema_version": 1
+    },
+    {
+      "event_id": "synthetic-16",
+      "timestamp": 1792017071.9941804,
+      "session_id": "synthetic-group",
+      "logical_turn_id": "synthetic-turn",
+      "source": "message",
+      "cycle_id": "1",
+      "request_id": null,
+      "message_ids": [],
+      "stage": "tool",
+      "event_type": "tool.completed",
+      "decision": "succeeded",
+      "reason_code": "tool_result",
+      "detail": {
+        "synthetic": true,
+        "tool_name": "reply",
+        "planner_task_completed": true,
+        "continuation_required": false
+      },
+      "duration_ms": null,
+      "schema_version": 1
+    },
+    {
+      "event_id": "synthetic-17",
+      "timestamp": 1792017072.0941803,
+      "session_id": "synthetic-group",
+      "logical_turn_id": "synthetic-turn",
+      "source": "message",
+      "cycle_id": "1",
+      "request_id": null,
+      "message_ids": [
+        "synthetic-input"
+      ],
+      "stage": "planner",
+      "event_type": "planner.lifecycle",
+      "decision": "end",
+      "reason_code": "completed_actions",
+      "detail": {
+        "synthetic": true,
+        "mode": "optimized",
+        "pending_messages": false
+      },
+      "duration_ms": null,
+      "schema_version": 1
+    },
+    {
+      "event_id": "synthetic-18",
+      "timestamp": 1792017072.1941805,
+      "session_id": "synthetic-group",
+      "logical_turn_id": "synthetic-turn",
+      "source": "message",
+      "cycle_id": "1",
+      "request_id": null,
+      "message_ids": [
+        "synthetic-input"
+      ],
+      "stage": "planner",
+      "event_type": "planner.finalized",
+      "decision": "reply",
+      "reason_code": "local_actions_completed",
+      "detail": {
+        "synthetic": true
+      },
+      "duration_ms": null,
+      "schema_version": 1
+    },
+    {
+      "event_id": "synthetic-19",
+      "timestamp": 1792017072.2941804,
+      "session_id": "synthetic-group",
+      "logical_turn_id": "synthetic-turn",
+      "source": "message",
+      "cycle_id": "1",
+      "request_id": null,
+      "message_ids": [
+        "synthetic-input"
+      ],
+      "stage": "planner",
+      "event_type": "turn.ended",
+      "decision": "completed",
+      "reason_code": "local_actions_completed",
+      "detail": {
+        "synthetic": true
+      },
+      "duration_ms": null,
+      "schema_version": 1
+    }
+  ],
+  "listing": {
+    "items": [
+      {
+        "logical_turn_id": "synthetic-turn",
+        "session_id": "synthetic-group",
+        "session_name": "测试群（虚构）",
+        "source": "message",
+        "started_at": 1792017070.4941804,
+        "ended_at": 1792017072.2941804,
+        "outcome": "local_actions_completed",
+        "gate_result": "pass",
+        "planner_result": "reply",
+        "emoji_result": "sent",
+        "failed": 0,
+        "spoken": 1,
+        "message_ids": [
+          "synthetic-input"
+        ],
+        "gate_detail": {
+          "synthetic": true,
+          "probability": 0.82,
+          "threshold": 0.336,
+          "contribution_unit": "logit",
+          "logit": 1.516,
+          "contributions": {
+            "intercept": -1.2005,
+            "other_synthetic_contributions": 2.7165
+          }
+        },
+        "last_event_at": 1792017072.2941804,
+        "duration_ms": 1799.9999523162842,
+        "status": "complete",
+        "usage": {
+          "model_calls": 2,
+          "input_tokens": 1200,
+          "output_tokens": 80,
+          "cache_hit_tokens": 900,
+          "cache_miss_tokens": 300,
+          "cost": 0.001,
+          "priced_calls": 2
+        }
+      }
+    ],
+    "total": 1,
+    "page": 1,
+    "page_size": 25,
+    "summary": {
+      "triggers": 1,
+      "external_triggers": 1,
+      "spoken": 1,
+      "gate_passed": 1,
+      "gate_evaluated": 1,
+      "planner_no_reply": 0,
+      "avg_duration_ms": 1799.9999523162842,
+      "model_calls": 2,
+      "planner_calls": 1,
+      "input_tokens": 1200,
+      "output_tokens": 80,
+      "cache_hit_tokens": 900,
+      "cache_miss_tokens": 300,
+      "cost": 0.001,
+      "priced_calls": 2,
+      "measured_calls": 2,
+      "gate_pass_rate": 1.0
+    },
+    "health": {
+      "dropped_events": 0,
+      "write_errors": 0,
+      "queue_size": 0
+    }
+  },
+  "detail": {
+    "logical_turn_id": "synthetic-turn",
+    "session_id": "synthetic-group",
+    "session_name": "测试群（虚构）",
+    "source": "message",
+    "started_at": 1792017070.4941804,
+    "ended_at": 1792017072.2941804,
+    "outcome": "local_actions_completed",
+    "gate_result": "pass",
+    "planner_result": "reply",
+    "emoji_result": "sent",
+    "failed": 0,
+    "spoken": 1,
+    "message_ids": [
+      "synthetic-input"
+    ],
+    "gate_detail": {
+      "synthetic": true,
+      "probability": 0.82,
+      "threshold": 0.336,
+      "contribution_unit": "logit",
+      "logit": 1.516,
+      "contributions": {
+        "intercept": -1.2005,
+        "other_synthetic_contributions": 2.7165
+      }
+    },
+    "last_event_at": 1792017072.2941804,
+    "duration_ms": 1799.9999523162842,
+    "status": "complete",
+    "usage": {
+      "model_calls": 2,
+      "input_tokens": 1200,
+      "output_tokens": 80,
+      "cache_hit_tokens": 900,
+      "cache_miss_tokens": 300,
+      "cost": 0.001,
+      "priced_calls": 2
+    },
+    "events": [
+      {
+        "sequence": 1,
+        "event_id": "synthetic-1",
+        "timestamp": 1792017070.4941804,
+        "session_id": "synthetic-group",
+        "logical_turn_id": "synthetic-turn",
+        "cycle_id": null,
+        "request_id": null,
+        "message_ids": [
+          "synthetic-input"
+        ],
+        "stage": "message",
+        "event_type": "message.received",
+        "decision": "buffered",
+        "reason_code": "pending_batch",
+        "detail": {
+          "synthetic": true,
+          "session_name": "测试群（虚构）",
+          "pending_count": 1
+        },
+        "duration_ms": null,
+        "schema_version": 1
+      },
+      {
+        "sequence": 2,
+        "event_id": "synthetic-2",
+        "timestamp": 1792017070.5941803,
+        "session_id": "synthetic-group",
+        "logical_turn_id": "synthetic-turn",
+        "cycle_id": null,
+        "request_id": null,
+        "message_ids": [
+          "synthetic-input"
+        ],
+        "stage": "gate",
+        "event_type": "gate.decided",
+        "decision": "pass",
+        "reason_code": "dynamic_trigger",
+        "detail": {
+          "synthetic": true,
+          "probability": 0.82,
+          "threshold": 0.336,
+          "contribution_unit": "logit",
+          "logit": 1.516,
+          "contributions": {
+            "intercept": -1.2005,
+            "other_synthetic_contributions": 2.7165
+          }
+        },
+        "duration_ms": null,
+        "schema_version": 1
+      },
+      {
+        "sequence": 3,
+        "event_id": "synthetic-3",
+        "timestamp": 1792017070.6941805,
+        "session_id": "synthetic-group",
+        "logical_turn_id": "synthetic-turn",
+        "cycle_id": "1",
+        "request_id": null,
+        "message_ids": [
+          "synthetic-input"
+        ],
+        "stage": "planner",
+        "event_type": "planner.started",
+        "decision": "started",
+        "reason_code": "scheduled",
+        "detail": {
+          "synthetic": true
+        },
+        "duration_ms": null,
+        "schema_version": 1
+      },
+      {
+        "sequence": 4,
+        "event_id": "synthetic-4",
+        "timestamp": 1792017070.7941804,
+        "session_id": "synthetic-group",
+        "logical_turn_id": "synthetic-turn",
+        "cycle_id": "1",
+        "request_id": null,
+        "message_ids": [
+          "synthetic-input"
+        ],
+        "stage": "planner",
+        "event_type": "planner.round_started",
+        "decision": "started",
+        "reason_code": "internal_round",
+        "detail": {
+          "synthetic": true,
+          "round": 1
+        },
+        "duration_ms": null,
+        "schema_version": 1
+      },
+      {
+        "sequence": 5,
+        "event_id": "synthetic-5",
+        "timestamp": 1792017070.8941805,
+        "session_id": "synthetic-group",
+        "logical_turn_id": "synthetic-turn",
+        "cycle_id": "1",
+        "request_id": "demo-planner:1",
+        "message_ids": [],
+        "stage": "model",
+        "event_type": "model.request",
+        "decision": "started",
+        "reason_code": "request_started",
+        "detail": {
+          "synthetic": true,
+          "model": "synthetic-model",
+          "task": "planner"
+        },
+        "duration_ms": null,
+        "schema_version": 1
+      },
+      {
+        "sequence": 6,
+        "event_id": "synthetic-6",
+        "timestamp": 1792017070.9941804,
+        "session_id": "synthetic-group",
+        "logical_turn_id": "synthetic-turn",
+        "cycle_id": "1",
+        "request_id": "demo-planner:1",
+        "message_ids": [],
+        "stage": "model",
+        "event_type": "model.request",
+        "decision": "succeeded",
+        "reason_code": "provider_response",
+        "detail": {
+          "synthetic": true,
+          "model": "synthetic-model",
+          "task": "planner",
+          "input_tokens": 800,
+          "output_tokens": 30,
+          "cache_hit_tokens": 600,
+          "cache_miss_tokens": 200,
+          "cost": 0.0007,
+          "usage_source": "synthetic_fixture"
+        },
+        "duration_ms": null,
+        "schema_version": 1
+      },
+      {
+        "sequence": 7,
+        "event_id": "synthetic-7",
+        "timestamp": 1792017071.0941803,
+        "session_id": "synthetic-group",
+        "logical_turn_id": "synthetic-turn",
+        "cycle_id": "1",
+        "request_id": null,
+        "message_ids": [],
+        "stage": "replyer",
+        "event_type": "replyer.started",
+        "decision": "started",
+        "reason_code": "generation_requested",
+        "detail": {
+          "synthetic": true
+        },
+        "duration_ms": null,
+        "schema_version": 1
+      },
+      {
+        "sequence": 8,
+        "event_id": "synthetic-8",
+        "timestamp": 1792017071.1941805,
+        "session_id": "synthetic-group",
+        "logical_turn_id": "synthetic-turn",
+        "cycle_id": "1",
+        "request_id": null,
+        "message_ids": [],
+        "stage": "memory",
+        "event_type": "memory.injected",
+        "decision": "injected",
+        "reason_code": "context_reference",
+        "detail": {
+          "synthetic": true,
+          "tag_ids": [
+            "synthetic-tag"
+          ],
+          "target": "replyer"
+        },
+        "duration_ms": null,
+        "schema_version": 1
+      },
+      {
+        "sequence": 9,
+        "event_id": "synthetic-9",
+        "timestamp": 1792017071.2941804,
+        "session_id": "synthetic-group",
+        "logical_turn_id": "synthetic-turn",
+        "cycle_id": "1",
+        "request_id": "demo-replyer:1",
+        "message_ids": [],
+        "stage": "model",
+        "event_type": "model.request",
+        "decision": "succeeded",
+        "reason_code": "provider_response",
+        "detail": {
+          "synthetic": true,
+          "model": "synthetic-model",
+          "task": "replyer",
+          "input_tokens": 400,
+          "output_tokens": 50,
+          "cache_hit_tokens": 300,
+          "cache_miss_tokens": 100,
+          "cost": 0.0003,
+          "usage_source": "synthetic_fixture"
+        },
+        "duration_ms": null,
+        "schema_version": 1
+      },
+      {
+        "sequence": 10,
+        "event_id": "synthetic-10",
+        "timestamp": 1792017071.3941805,
+        "session_id": "synthetic-group",
+        "logical_turn_id": "synthetic-turn",
+        "cycle_id": "1",
+        "request_id": null,
+        "message_ids": [],
+        "stage": "replyer",
+        "event_type": "replyer.completed",
+        "decision": "succeeded",
+        "reason_code": "generated",
+        "detail": {
+          "synthetic": true,
+          "segment_count": 1,
+          "has_valid_text": true,
+          "selected_emoji_tag": "开心"
+        },
+        "duration_ms": null,
+        "schema_version": 1
+      },
+      {
+        "sequence": 11,
+        "event_id": "synthetic-11",
+        "timestamp": 1792017071.4941804,
+        "session_id": "synthetic-group",
+        "logical_turn_id": "synthetic-turn",
+        "cycle_id": "1",
+        "request_id": null,
+        "message_ids": [],
+        "stage": "replyer",
+        "event_type": "replyer.postprocessed",
+        "decision": "completed",
+        "reason_code": "segments_prepared",
+        "detail": {
+          "synthetic": true,
+          "segment_count": 1
+        },
+        "duration_ms": null,
+        "schema_version": 1
+      },
+      {
+        "sequence": 12,
+        "event_id": "synthetic-12",
+        "timestamp": 1792017071.5941803,
+        "session_id": "synthetic-group",
+        "logical_turn_id": "synthetic-turn",
+        "cycle_id": "1",
+        "request_id": null,
+        "message_ids": [
+          "synthetic-output"
+        ],
+        "stage": "send",
+        "event_type": "send.completed",
+        "decision": "sent",
+        "reason_code": "sent",
+        "detail": {
+          "synthetic": true,
+          "has_text": true,
+          "has_emoji": false
+        },
+        "duration_ms": null,
+        "schema_version": 1
+      },
+      {
+        "sequence": 13,
+        "event_id": "synthetic-13",
+        "timestamp": 1792017071.6941805,
+        "session_id": "synthetic-group",
+        "logical_turn_id": "synthetic-turn",
+        "cycle_id": "1",
+        "request_id": null,
+        "message_ids": [],
+        "stage": "emoji",
+        "event_type": "emoji.probability",
+        "decision": "pass",
+        "reason_code": "probability_hit",
+        "detail": {
+          "synthetic": true,
+          "tag": "开心",
+          "probability": 0.4,
+          "hit": true
+        },
+        "duration_ms": null,
+        "schema_version": 1
+      },
+      {
+        "sequence": 14,
+        "event_id": "synthetic-14",
+        "timestamp": 1792017071.7941804,
+        "session_id": "synthetic-group",
+        "logical_turn_id": "synthetic-turn",
+        "cycle_id": "1",
+        "request_id": null,
+        "message_ids": [],
+        "stage": "emoji",
+        "event_type": "emoji.selection",
+        "decision": "selected",
+        "reason_code": "score_passed",
+        "detail": {
+          "synthetic": true,
+          "candidate_count": 2,
+          "best_score": 100,
+          "threshold": 70,
+          "selected_hash": "synthetic-hash",
+          "rankings": [
+            {
+              "hash": "synthetic-hash",
+              "scores": {
+                "emotion": 55,
+                "context": 25,
+                "useWhen": 15,
+                "quality": 5,
+                "time_penalty": 0,
+                "frequency_penalty": 0,
+                "total": 100
+              }
+            }
+          ]
+        },
+        "duration_ms": null,
+        "schema_version": 1
+      },
+      {
+        "sequence": 15,
+        "event_id": "synthetic-15",
+        "timestamp": 1792017071.8941805,
+        "session_id": "synthetic-group",
+        "logical_turn_id": "synthetic-turn",
+        "cycle_id": "1",
+        "request_id": null,
+        "message_ids": [
+          "synthetic-emoji-output"
+        ],
+        "stage": "send",
+        "event_type": "send.completed",
+        "decision": "sent",
+        "reason_code": "sent",
+        "detail": {
+          "synthetic": true,
+          "has_text": false,
+          "has_emoji": true
+        },
+        "duration_ms": null,
+        "schema_version": 1
+      },
+      {
+        "sequence": 16,
+        "event_id": "synthetic-16",
+        "timestamp": 1792017071.9941804,
+        "session_id": "synthetic-group",
+        "logical_turn_id": "synthetic-turn",
+        "cycle_id": "1",
+        "request_id": null,
+        "message_ids": [],
+        "stage": "tool",
+        "event_type": "tool.completed",
+        "decision": "succeeded",
+        "reason_code": "tool_result",
+        "detail": {
+          "synthetic": true,
+          "tool_name": "reply",
+          "planner_task_completed": true,
+          "continuation_required": false
+        },
+        "duration_ms": null,
+        "schema_version": 1
+      },
+      {
+        "sequence": 17,
+        "event_id": "synthetic-17",
+        "timestamp": 1792017072.0941803,
+        "session_id": "synthetic-group",
+        "logical_turn_id": "synthetic-turn",
+        "cycle_id": "1",
+        "request_id": null,
+        "message_ids": [
+          "synthetic-input"
+        ],
+        "stage": "planner",
+        "event_type": "planner.lifecycle",
+        "decision": "end",
+        "reason_code": "completed_actions",
+        "detail": {
+          "synthetic": true,
+          "mode": "optimized",
+          "pending_messages": false
+        },
+        "duration_ms": null,
+        "schema_version": 1
+      },
+      {
+        "sequence": 18,
+        "event_id": "synthetic-18",
+        "timestamp": 1792017072.1941805,
+        "session_id": "synthetic-group",
+        "logical_turn_id": "synthetic-turn",
+        "cycle_id": "1",
+        "request_id": null,
+        "message_ids": [
+          "synthetic-input"
+        ],
+        "stage": "planner",
+        "event_type": "planner.finalized",
+        "decision": "reply",
+        "reason_code": "local_actions_completed",
+        "detail": {
+          "synthetic": true
+        },
+        "duration_ms": null,
+        "schema_version": 1
+      },
+      {
+        "sequence": 19,
+        "event_id": "synthetic-19",
+        "timestamp": 1792017072.2941804,
+        "session_id": "synthetic-group",
+        "logical_turn_id": "synthetic-turn",
+        "cycle_id": "1",
+        "request_id": null,
+        "message_ids": [
+          "synthetic-input"
+        ],
+        "stage": "planner",
+        "event_type": "turn.ended",
+        "decision": "completed",
+        "reason_code": "local_actions_completed",
+        "detail": {
+          "synthetic": true
+        },
+        "duration_ms": null,
+        "schema_version": 1
+      }
+    ],
+    "requests": [
+      {
+        "request_id": "demo-planner:1",
+        "logical_turn_id": "synthetic-turn",
+        "session_id": "synthetic-group",
+        "model": "synthetic-model",
+        "task": "planner",
+        "input_tokens": 800,
+        "output_tokens": 30,
+        "cache_hit_tokens": 600,
+        "cache_miss_tokens": 200,
+        "cost": 0.0007,
+        "duration_ms": null,
+        "status": "succeeded",
+        "usage_source": "synthetic_fixture"
+      },
+      {
+        "request_id": "demo-replyer:1",
+        "logical_turn_id": "synthetic-turn",
+        "session_id": "synthetic-group",
+        "model": "synthetic-model",
+        "task": "replyer",
+        "input_tokens": 400,
+        "output_tokens": 50,
+        "cache_hit_tokens": 300,
+        "cache_miss_tokens": 100,
+        "cost": 0.0003,
+        "duration_ms": null,
+        "status": "succeeded",
+        "usage_source": "synthetic_fixture"
+      }
+    ],
+    "requests_total": 2,
+    "requests_truncated": false,
+    "next_cursor": 19,
+    "has_more": false
+  }
+}

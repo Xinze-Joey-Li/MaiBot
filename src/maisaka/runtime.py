@@ -172,6 +172,7 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
         self._running = False
         self._cycle_counter = 0
         self._monitor_run_id = uuid.uuid4().hex
+        self._decision_replay_turn_id: Optional[str] = None
         self._internal_loop_task: Optional[asyncio.Task] = None
         self._message_turn_scheduled = False
         self._deferred_message_turn_task: Optional[asyncio.Task[None]] = None
@@ -951,6 +952,11 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
         if self._is_reply_effect_tracking_enabled():
             asyncio.create_task(self._reply_effect_tracker.observe_user_message(message))
         if not self._should_continue_after_focus_gate(message):
+            from src.decision_replay.recorder import new_trace, record
+            trace = new_trace(self.session_id)
+            record('gate', 'gate.decided', 'reject', 'focus_unavailable', trace=trace,
+                   message_ids=[message.message_id], detail={'session_name':self.session_name})
+            record('scheduler', 'turn.ended', 'waiting', 'focus_unavailable', trace=trace)
             return
         if self._agent_state == self._STATE_RUNNING:
             self._mark_message_debounce_required()

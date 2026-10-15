@@ -125,10 +125,11 @@ class PluginPlatformDriver(PlatformIODriver):
                 timeout_ms=self._timeout_ms,
             )
         except Exception as exc:
+            # RPC exceptions after dispatch do not prove platform rejection.
             return DeliveryReceipt(
                 internal_message_id=message.message_id,
                 route_key=route_key,
-                status=DeliveryStatus.FAILED,
+                status=DeliveryStatus.UNKNOWN,
                 driver_id=self.driver_id,
                 driver_kind=self.descriptor.kind,
                 error=str(exc),

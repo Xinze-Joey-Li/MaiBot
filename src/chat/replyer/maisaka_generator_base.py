@@ -8,6 +8,7 @@ import time
 
 from .simulated_typing import wait_for_simulated_typing
 
+from src.decision_replay.recorder import traced_replyer
 from src.chat.message_receive.chat_manager import BotChatSession
 from src.chat.message_receive.message import SessionMessage
 from src.chat.utils.utils import get_chat_type_and_target_info, is_bot_self
@@ -1026,6 +1027,7 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
             result.request_messages = preview.payload["request_items"]
             result.output_items = preview.payload["output_items"]
 
+    @traced_replyer
     async def generate_reply_with_context(
         self,
         extra_info: str = "",

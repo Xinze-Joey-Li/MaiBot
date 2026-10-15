@@ -70,6 +70,7 @@
       "mcpSettings": "MCP 设置",
       "dataTransfer": "数据管理",
       "statistics": "详细统计数据",
+      "decisionReplay": "决策回放",
       "replyEffects": "回复效果",
       "logViewer": "日志查看器",
       "reasoningProcess": "推理过程",
@@ -120,7 +121,7 @@
     "summary": {
       "onlineTime": "总在线时间",
       "messages": "总消息数",
-      "replies": "总回复数",
+      "replies": "reply 工具记录数（旧口径）",
       "requests": "总请求数",
       "tokens": "总Token数",
       "inputTokens": "总输入Token",
@@ -131,7 +132,7 @@
       "totalCost": "总花费",
       "costPerMessages": "花费/消息数量",
       "costPerReceivedMessages": "花费/接收消息数量",
-      "costPerReplies": "花费/回复数量",
+      "costPerReplies": "花费/reply 工具记录（旧口径）",
       "costPerHour": "花费/时间",
       "tokensPerHour": "Token/时间"
     },
@@ -151,8 +152,8 @@
       "cost": "累计花费",
       "avgTime": "平均耗时",
       "stdTime": "耗时标准差",
-      "callsPerReply": "每次回复平均调用次数",
-      "tokensPerReply": "每次回复平均Token",
+      "callsPerReply": "每条 reply 工具记录平均（旧口径）调用次数",
+      "tokensPerReply": "每条 reply 工具记录平均（旧口径）Token",
       "tokensPerCall": "每次调用平均Token",
       "chat": "联系人/群组名称",
       "messages": "消息数量"
@@ -188,7 +189,7 @@
       "costPerMessages": "花费/消息数量趋势",
       "costPerHour": "花费/时间趋势",
       "tokensPerHour": "Token/时间趋势",
-      "costPerReplies": "花费/回复数量趋势"
+      "costPerReplies": "花费/机器人消息记录趋势（旧口径）"
     }
   },
   "workspace": {
@@ -1484,7 +1485,7 @@
       "recentPeriod": "最近{{range}}",
       "perHour": "{{value}}/小时",
       "noData": "暂无数据",
-      "replied": "回复 {{num}} 条",
+      "replied": "带引用消息 {{num}} 条（旧口径）",
       "per100Messages": "每100条消息",
       "seconds": "秒",
       "hours": "小时",

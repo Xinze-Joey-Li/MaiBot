@@ -8,6 +8,7 @@ import json
 import time
 import uuid
 
+from src.decision_replay.recorder import record, traced_extraction
 
 from .tag_memory_service import tag_memory_service
 from .tag_memory_store import StaleTagConflict, TagCandidate, TagMemoryStore
@@ -181,6 +182,7 @@ class TagExtractionService:
                 result[session_id] = rule.batch_size
         return result
 
+    @traced_extraction
     async def _run_job(self, job: Dict[str, Any]) -> None:
         from src.common.logger import get_logger
 
@@ -193,8 +195,10 @@ class TagExtractionService:
             # 限制单群故障占用槽位的时间，另一个群仍可独立完成提取。
             await asyncio.wait_for(self._process_job(job), timeout=180)
             success = True
+            record("memory", "memory.extracted", "succeeded", "batch_committed")
             logger.info(f"批量标签提取完成: session_id={job['session_id']} job_id={job['id']}")
         except ConflictBudgetExceeded:
+            record("memory", "memory.conflict", "deferred", "conflict_budget")
             deferred = True
             if self._store is not None:
                 await self._io(self._store.defer_extraction_job, job["id"])
@@ -202,6 +206,7 @@ class TagExtractionService:
             cancelled = True
             raise
         except Exception as error:
+            record("memory", "memory.extracted", "failed", "extraction_error", detail={"error_type":type(error).__name__})
             logger.exception(f"批量标签提取失败: session_id={job['session_id']} job_id={job['id']}；消息保留待重试")
             if self._store is not None:
                 try:
@@ -350,6 +355,7 @@ class TagExtractionService:
             decisions = await decide_tag_conflicts(scope, parsed.tags, old_tags, read_cache=read_chunk,
                                                   write_cache=write_chunk, on_request=count_request,
                                                   progress=progress, checkpoint=checkpoint, on_usage=usage, on_started=lambda detail: event("model_request", detail), source_times={item["message_id"]: item["timestamp"] for item in payload["messages"]}, on_stats=lambda detail: event("conflict_stats", detail))
+            record("memory", "memory.conflict", "checked", "conflict_checked", detail={"decision_count":len(decisions)})
             checked = {tag["id"]: tag["revision"] for tag in old_tags if any(
                 tag["category_path"] == list(candidate.category_path) for candidate in parsed.tags)}
             await self._io(store.cache_conflict_output, job["id"], decisions, checked, rule_signature=rule_signature, categories=categories)
@@ -361,6 +367,7 @@ class TagExtractionService:
         batch = await self._io(store.record_batch, session_id=scope, session_name=name, external_id=f"extract:{job['id']}",
                        summary=parsed.summary, message_ids=[item["message_id"] for item in payload["messages"]],
                        tags=parsed.tags, extraction_job_id=job["id"], conflict_decisions=decisions, conflict_versions=checked, conflict_categories=categories)
+        record("memory", "memory.batch_committed", "succeeded", "batch_committed", detail={"candidate_count":len(parsed.tags),"conflict_count":len(decisions)})
         logger.info(f"标签批次已提交: session_id={scope} job_id={job['id']} batch_id={batch['batch_id']} messages_consumed=true")
         for kind in ("output", "conflicts", "failures", "repair", "template", "usage"):
             await self._io(store.remove_job_cache, job["id"], kind)

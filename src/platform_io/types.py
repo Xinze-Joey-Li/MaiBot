@@ -24,6 +24,7 @@ class DeliveryStatus(str, Enum):
     """统一出站回执状态枚举。"""
 
     PENDING = "pending"
+    UNKNOWN = "unknown"
     SENT = "sent"
     FAILED = "failed"
     DROPPED = "dropped"
@@ -256,7 +257,7 @@ class DeliveryBatch:
     def failed_receipts(self) -> List[DeliveryReceipt]:
         """返回全部发送失败的回执。"""
 
-        return [receipt for receipt in self.receipts if receipt.status != DeliveryStatus.SENT]
+        return [receipt for receipt in self.receipts if receipt.status == DeliveryStatus.FAILED]
 
     @property
     def has_success(self) -> bool:

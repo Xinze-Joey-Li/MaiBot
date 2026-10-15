@@ -19,7 +19,8 @@ class StatisticsSummary(BaseModel):
     chat_cache_hit_rate: Optional[float] = Field(None, description="聊天任务Prompt缓存命中率")
     online_time: float = Field(0.0, description="在线时间（秒）")
     total_messages: int = Field(0, description="总消息数")
-    total_replies: int = Field(0, description="总回复数")
+    total_replies: int = Field(0, description="带引用关系的消息记录数（旧口径，非逻辑回复）")
+    legacy_reply_definition: str = "messages_with_reply_reference"
     avg_response_time: float = Field(0.0, description="平均响应时间")
     cost_per_hour: float = Field(0.0, description="每小时花费")
     tokens_per_hour: float = Field(0.0, description="每小时token数")
@@ -69,7 +70,8 @@ class DetailedStatisticsSummary(BaseModel):
 
     online_time: float = 0.0
     total_messages: int = 0
-    total_replies: int = 0
+    total_replies: int = Field(0, description="reply 工具记录数（旧口径，非平台发送成功数）")
+    legacy_reply_definition: str = "reply_tool_records"
     total_requests: int = 0
     total_tokens: int = 0
     input_tokens: int = 0

@@ -55,10 +55,17 @@ class GroupSilenceEmojiService:
                 continue
             # 发送失败也间隔一整轮才再尝试，不以巡检周期持续刷请求。
             self._last_activity[session_id] = timestamp
+            from src.decision_replay.recorder import current_trace, new_trace, record
+            replay_token = current_trace.set(new_trace(session_id, 'silence_emoji'))
+            replay_sent = False
+            record('scheduler', 'turn.started', 'started', 'silence_threshold',
+                   detail={'silence_seconds':SILENCE_SECONDS,'cooldown_exempt':True})
             try:
                 if not emoji_manager.emojis:
                     raise RuntimeError("没有可发送的已注册表情包")
                 emoji = random.choice(list(emoji_manager.emojis))
+                record('emoji', 'emoji.selection', 'selected', 'silence_random',
+                       detail={'candidate_count':len(emoji_manager.emojis),'selected_hash':emoji.file_hash})
                 data = await asyncio.to_thread(
                     lambda path=emoji.full_path: resolve_stored_image_path(path).read_bytes()
                 )
@@ -71,9 +78,15 @@ class GroupSilenceEmojiService:
                 sequence = MessageSequence([EmojiComponent(binary_hash=emoji.file_hash, binary_data=data)])
                 if not await send_group_silence_emoji(sequence, session_id):
                     raise RuntimeError("群静默表情发送失败")
+                replay_sent = True
                 logger.info(f"群静默表情已发送: session_id={session_id} 静默阈值=45分钟")
             except Exception:
+                record('emoji', 'emoji.completed', 'failed', 'silence_send_failed')
                 logger.exception(f"群静默表情失败: session_id={session_id}")
+            finally:
+                record('scheduler', 'turn.ended', 'completed' if replay_sent else 'not_sent',
+                       'sent' if replay_sent else 'silence_attempt_not_sent')
+                current_trace.reset(replay_token)
 
     async def run(self) -> None:
         logger.info("群静默表情巡检已启动: 静默45分钟，00:00–08:00停用，每群独立计时")
