@@ -927,19 +927,30 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
 
     async def register_message(self, message: SessionMessage) -> None:
         """缓存一条新消息并唤醒主循环。"""
-        if message.message_info.additional_config.get("priority_at_handled") is True:
-            # @ 仅写入上下文供独立 Replyer 使用，不更新强制触发或加入普通消息队列。
-            if any(
-                isinstance(item, SessionBackedMessage) and item.message_id == message.message_id
-                for item in self._chat_history
-            ):
+        if message.message_info.additional_config.get("priority_at_requested") is True:
+            from src.services.priority_at_reply_service import priority_at_reply_service
+
+            # 重投只允许已有独立路径继续处理，不能因关闭或满载转入普通队列。
+            if priority_at_reply_service.owns(message):
+                message.message_info.additional_config["priority_at_handled"] = True
                 return
-            self._emit_monitor_message_ingested(message)
             history_message = await self._reasoning_engine._build_history_message(message, source_kind="user")
             if history_message is None:
                 raise RuntimeError("@ 消息无法构建回复上下文")
-            self._chat_history.append(history_message)
-            return
+            # 构建上下文可能让出执行权；准入、归属标记和历史提交之间不能再 await。
+            # 快照包含当前消息，拒绝时不写历史，继续下方普通消息注册流程。
+            accepted = priority_at_reply_service.start_reply(
+                message, self, history=[*self._chat_history, history_message],
+            )
+            if accepted:
+                message.message_info.additional_config["priority_at_handled"] = True
+                self._chat_history.append(history_message)
+                self._emit_monitor_message_ingested(message)
+                return
+            if priority_at_reply_service.owns(message):
+                message.message_info.additional_config["priority_at_handled"] = True
+                return
+            message.message_info.additional_config.pop("priority_at_handled", None)
         if self._running:
             self._ensure_background_tasks_running()
         received_at = time.time()

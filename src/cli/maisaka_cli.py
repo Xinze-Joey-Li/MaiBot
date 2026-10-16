@@ -87,7 +87,7 @@ class BufferCLI:
             user_text=user_text,
             timestamp=datetime.now(),
         )
-        chat_manager.register_message(message)
+        await asyncio.to_thread(chat_manager.register_message, message)
         self._session = await chat_manager.get_or_create_session(
             platform=self._CLI_PLATFORM,
             user_id=self._CLI_USER_ID,

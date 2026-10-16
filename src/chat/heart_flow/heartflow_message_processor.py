@@ -69,8 +69,6 @@ class HeartFCMessageReceiver:
             tag_extraction_service.notify_message_saved()
             if chat is not None:
                 await chat.register_message(message)
-                if priority_at_reply:
-                    priority_at_reply_service.start_reply(message, chat)
             elif priority_at_reply:
                 raise RuntimeError("@ 独立回复无法解析真实聊天运行时")
             from src.services.memory_flow_service import memory_automation_service

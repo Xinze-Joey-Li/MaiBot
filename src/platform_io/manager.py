@@ -545,6 +545,10 @@ class PlatformIOManager:
                     metadata=metadata,
                 )
             except ValueError as exc:
+                uncertain = self._outbound_tracker.get_uncertain(message.message_id, driver.driver_id)
+                if uncertain is not None:
+                    receipts.append(uncertain)
+                    continue
                 receipts.append(
                     DeliveryReceipt(
                         internal_message_id=message.message_id,
@@ -560,25 +564,26 @@ class PlatformIOManager:
             from src.decision_replay.replies import emit, outbound_id, classify, receipt as observe_receipt
             import uuid
             attempt_id = uuid.uuid4().hex
-            await emit("send_attempt", attempt_id, detail={"attempt_id": attempt_id,
-                "outbound_message_id": outbound_id(message), "content_type": classify(message), "driver_id": driver.driver_id})
+            receipt = DeliveryReceipt(
+                internal_message_id=message.message_id,
+                route_key=route_key,
+                status=DeliveryStatus.UNKNOWN,
+                driver_id=driver.driver_id,
+                driver_kind=driver.descriptor.kind,
+            )
             try:
+                await emit("send_attempt", attempt_id, detail={"attempt_id": attempt_id,
+                    "outbound_message_id": outbound_id(message), "content_type": classify(message), "driver_id": driver.driver_id})
                 receipt = await driver.send_message(message=message, route_key=route_key, metadata=metadata)
             except BaseException as exc:
-                receipt = DeliveryReceipt(
-                    internal_message_id=message.message_id,
-                    route_key=route_key,
-                    status=DeliveryStatus.UNKNOWN,
-                    driver_id=driver.driver_id,
-                    driver_kind=driver.descriptor.kind,
-                    error=type(exc).__name__,
-                )
-                if isinstance(exc, BaseException) and not isinstance(exc, Exception):
-                    await observe_receipt(message, route_key, receipt, attempt_id)
+                receipt.error = type(exc).__name__
+                if not isinstance(exc, Exception):
                     raise
-
-            await observe_receipt(message, route_key, receipt, attempt_id)
-            self._outbound_tracker.finish_tracking(receipt)
+            finally:
+                # 先同步结束本地跟踪，再等待回放写入；取消或回放异常不能留下 pending。
+                # UNKNOWN 另存有界记录，避免清理后把可能已送达的消息再次发出。
+                self._outbound_tracker.finish_tracking(receipt)
+                await observe_receipt(message, route_key, receipt, attempt_id)
             receipts.append(receipt)
 
         return DeliveryBatch(

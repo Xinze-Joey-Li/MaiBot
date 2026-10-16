@@ -40,7 +40,8 @@ class PriorityAtReplyTest(IsolatedAsyncioTestCase):
         with patch.dict("sys.modules", self.modules):
             self.assertTrue(self.service.claim(message))
         self.assertTrue(message.is_at)
-        self.assertTrue(message.message_info.additional_config["priority_at_handled"])
+        self.assertTrue(message.message_info.additional_config["priority_at_requested"])
+        self.assertNotIn("priority_at_handled", message.message_info.additional_config)
 
     async def test_name_mention_without_at_is_not_claimed(self) -> None:
         self.detect.return_value = (True, False, 0.0)

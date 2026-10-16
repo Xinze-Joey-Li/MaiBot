@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+import asyncio
 import random
 import re
 import time
@@ -331,7 +332,8 @@ class RuntimeDataCapabilityMixin:
         try:
             from src.chat.message_receive.chat_manager import chat_manager
 
-            existing_session_ids = chat_manager.resolve_session_ids_by_target(
+            existing_session_ids = await asyncio.to_thread(
+                chat_manager.resolve_session_ids_by_target,
                 platform=platform,
                 target_id=group_id if chat_type == "group" else user_id,
                 chat_type=chat_type,

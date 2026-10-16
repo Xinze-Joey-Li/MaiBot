@@ -1,5 +1,6 @@
 from collections import Counter
 from datetime import datetime
+from threading import RLock
 from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 
 import asyncio
@@ -83,6 +84,8 @@ class ChatManager:
     """聊天管理器，负责管理所有聊天会话"""
 
     def __init__(self) -> None:
+        # 工作线程中的创建和身份更新保持串行，避免同一会话并发 miss 重复创建。
+        self._session_update_lock = RLock()
         self.sessions: Dict[str, BotChatSession] = {}  # session_id -> BotChatSession
         self.last_messages: Dict[str, "SessionMessage"] = {}  # session_id -> SessionMessage
 
@@ -115,88 +118,104 @@ class ChatManager:
         Raises:
             Exception: 获取或创建会话时发生错误
         """
-        session_id = SessionUtils.calculate_session_id(
-            platform,
-            user_id=user_id,
-            group_id=group_id,
-            account_id=account_id,
-            scope=scope,
+        # 查询、写入、提交和关闭会话全部在同一工作线程中完成。
+        return await asyncio.to_thread(
+            self._get_or_create_session, platform, user_id, group_id, account_id, scope,
         )
-        if session := self.get_session_by_session_id(session_id):
-            route_metadata_changed = self._apply_route_metadata(session, account_id=account_id, scope=scope)
-            session.update_active_time()
-            identity_changed = False
-            if session_id in self.last_messages:
-                identity_changed = self._update_session_identity(session, self.last_messages[session_id])
-            if route_metadata_changed or identity_changed:
-                self._save_session(session)
-            return session
 
-        # 内存没有就找db
-        try:
-            with get_db_session() as db_session:
-                statement = select(ChatSession).filter_by(session_id=session_id).limit(1)
-                if result := db_session.exec(statement).first():
-                    session = BotChatSession.from_db_instance(result)
-                    route_metadata_changed = self._apply_route_metadata(session, account_id=account_id, scope=scope)
-                    identity_changed = False
-                    if session.session_id in self.last_messages:
-                        session.set_context(self.last_messages[session.session_id])
-                        identity_changed = self._update_session_identity(session, self.last_messages[session.session_id])
-                    if route_metadata_changed or identity_changed:
-                        result.account_id = session.account_id
-                        result.scope = session.scope
-                        result.user_id = session.user_id
-                        result.user_nickname = session.user_nickname
-                        result.user_cardname = session.user_cardname
-                        result.group_id = session.group_id
-                        result.group_name = session.group_name
-                        db_session.add(result)
-                    self.sessions[session.session_id] = session
-                    return session
-        except Exception as e:
-            logger.error(f"从数据库获取会话时发生错误: {e}")
-            raise e
+    def _get_or_create_session(
+        self,
+        platform: str,
+        user_id: str,
+        group_id: Optional[str],
+        account_id: Optional[str],
+        scope: Optional[str],
+    ) -> BotChatSession:
+        with self._session_update_lock:
+            session_id = SessionUtils.calculate_session_id(
+                platform,
+                user_id=user_id,
+                group_id=group_id,
+                account_id=account_id,
+                scope=scope,
+            )
+            if session := self.get_session_by_session_id(session_id):
+                route_metadata_changed = self._apply_route_metadata(session, account_id=account_id, scope=scope)
+                session.update_active_time()
+                identity_changed = False
+                if session_id in self.last_messages:
+                    identity_changed = self._update_session_identity(session, self.last_messages[session_id])
+                if route_metadata_changed or identity_changed:
+                    self._save_session(session)
+                return session
 
-        # 都没有就创建新的
-        new_session = BotChatSession(
-            session_id=session_id,
-            platform=platform,
-            user_id=user_id,
-            group_id=group_id,
-            account_id=account_id,
-            scope=scope,
-        )
-        self.sessions[new_session.session_id] = new_session
-        if new_session.session_id in self.last_messages:
-            new_session.set_context(self.last_messages[new_session.session_id])
-            self._update_session_identity(new_session, self.last_messages[new_session.session_id])
-        self._save_session(new_session)
-        return new_session
+            # 内存没有就找db
+            try:
+                with get_db_session() as db_session:
+                    statement = select(ChatSession).filter_by(session_id=session_id).limit(1)
+                    if result := db_session.exec(statement).first():
+                        session = BotChatSession.from_db_instance(result)
+                        route_metadata_changed = self._apply_route_metadata(session, account_id=account_id, scope=scope)
+                        identity_changed = False
+                        if session.session_id in self.last_messages:
+                            session.set_context(self.last_messages[session.session_id])
+                            identity_changed = self._update_session_identity(session, self.last_messages[session.session_id])
+                        if route_metadata_changed or identity_changed:
+                            result.account_id = session.account_id
+                            result.scope = session.scope
+                            result.user_id = session.user_id
+                            result.user_nickname = session.user_nickname
+                            result.user_cardname = session.user_cardname
+                            result.group_id = session.group_id
+                            result.group_name = session.group_name
+                            db_session.add(result)
+                        self.sessions[session.session_id] = session
+                        return session
+            except Exception as e:
+                logger.error(f"从数据库获取会话时发生错误: {e}")
+                raise e
+
+            # 都没有就创建新的
+            new_session = BotChatSession(
+                session_id=session_id,
+                platform=platform,
+                user_id=user_id,
+                group_id=group_id,
+                account_id=account_id,
+                scope=scope,
+            )
+            self.sessions[new_session.session_id] = new_session
+            if new_session.session_id in self.last_messages:
+                new_session.set_context(self.last_messages[new_session.session_id])
+                self._update_session_identity(new_session, self.last_messages[new_session.session_id])
+            self._save_session(new_session)
+            return new_session
 
     def register_message(self, message: "SessionMessage"):
-        platform = message.platform
-        if not platform:
-            raise ValueError("消息缺少平台信息")
-        user_id = message.message_info.user_info.user_id
-        group_id = message.message_info.group_info.group_id if message.message_info.group_info else None
-        account_id = None
-        scope = None
-        additional_config = message.message_info.additional_config
-        if isinstance(additional_config, dict):
-            account_id, scope = RouteKeyFactory.extract_components(additional_config)
-        session_id = SessionUtils.calculate_session_id(
-            platform,
-            user_id=user_id,
-            group_id=group_id,
-            account_id=account_id,
-            scope=scope,
-        )
-        message.session_id = session_id  # 确保消息的session_id正确设置
-        self.last_messages[session_id] = message
-        session = self.sessions.get(session_id)
-        if session is not None and self._update_session_identity(session, message):
-            self._save_session(session)
+        """同步注册入站身份；异步调用方必须通过 asyncio.to_thread 调用。"""
+        with self._session_update_lock:
+            platform = message.platform
+            if not platform:
+                raise ValueError("消息缺少平台信息")
+            user_id = message.message_info.user_info.user_id
+            group_id = message.message_info.group_info.group_id if message.message_info.group_info else None
+            account_id = None
+            scope = None
+            additional_config = message.message_info.additional_config
+            if isinstance(additional_config, dict):
+                account_id, scope = RouteKeyFactory.extract_components(additional_config)
+            session_id = SessionUtils.calculate_session_id(
+                platform,
+                user_id=user_id,
+                group_id=group_id,
+                account_id=account_id,
+                scope=scope,
+            )
+            message.session_id = session_id  # 确保消息的session_id正确设置
+            self.last_messages[session_id] = message
+            session = self.sessions.get(session_id)
+            if session is not None and self._update_session_identity(session, message):
+                self._save_session(session)
 
     @staticmethod
     def _normalize_identity_text(value: Optional[str]) -> Optional[str]:
@@ -261,13 +280,14 @@ class ChatManager:
 
     def save_all_sessions(self):
         """将内存中的全部会话记录保存到数据库"""
-        try:
-            for session in self.sessions.values():
-                self._save_session(session)
-            logger.info(f"共 {len(self.sessions)} 个会话已经保存到数据库中")
-        except Exception as e:
-            logger.error(f"保存会话记录到数据库时发生错误: {e}")
-            raise e
+        with self._session_update_lock:
+            try:
+                for session in self.sessions.values():
+                    self._save_session(session)
+                logger.info(f"共 {len(self.sessions)} 个会话已经保存到数据库中")
+            except Exception as e:
+                logger.error(f"保存会话记录到数据库时发生错误: {e}")
+                raise e
 
     def get_session_name(self, session_id: str) -> Optional[str]:
         """根据会话ID获取会话名称

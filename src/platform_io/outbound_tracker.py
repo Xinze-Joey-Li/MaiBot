@@ -1,7 +1,8 @@
 """跟踪 Platform IO 层的出站投递状态。
 
-当前实现基于两组 ``dict + heapq``：
+当前实现基于三组 ``dict + heapq``：
 - ``_pending`` 和 ``_pending_expire_heap`` 负责管理待完成的出站记录
+- ``_uncertain`` 和 ``_uncertain_expire_heap`` 保留已结束但结果未知的投递
 - ``_receipts_by_external_id`` 和 ``_receipt_expire_heap`` 负责管理已完成回执索引
 
 这样就不需要在每次读写时全表扫描过期项，而是通过懒清理逐步弹出已经过期
@@ -14,7 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import heapq
 import time
 
-from .types import DeliveryReceipt, RouteKey
+from .types import DeliveryReceipt, DeliveryStatus, RouteKey
 
 
 @dataclass(slots=True)
@@ -59,6 +60,7 @@ class OutboundTracker:
     主要用于解决出站消息在发送过程中“状态散落在不同路径里”的问题：
     - 发送开始后，需要在最终回执返回前保留一份 pending 状态
     - 平台返回 ``external_message_id`` 后，需要保留一段时间的回执索引
+    - UNKNOWN 不再占用 pending，但在 TTL 内阻止同驱动上的同 ID 重发
 
     当前实现使用 ``dict + heapq`` 做 TTL 管理：
     - ``dict`` 提供 ``O(1)`` 级别的主键查询
@@ -83,7 +85,7 @@ class OutboundTracker:
 
         Args:
             ttl_seconds: 待完成记录与按外部消息 ID 建立的回执索引保留时长，
-                单位为秒。
+                单位为秒；已结束但结果未知的投递也保留相同时长。
 
         Raises:
             ValueError: 当 ``ttl_seconds`` 非正数时抛出。
@@ -96,6 +98,9 @@ class OutboundTracker:
         self._pending_expire_heap: List[Tuple[float, str, str]] = []
         self._receipts_by_external_id: Dict[str, StoredDeliveryReceipt] = {}
         self._receipt_expire_heap: List[Tuple[float, str]] = []
+        # UNKNOWN 已结束本地任务，但仍可能送达；独立保留，不能作为可重发的空闲项。
+        self._uncertain: Dict[Tuple[str, str], StoredDeliveryReceipt] = {}
+        self._uncertain_expire_heap: List[Tuple[float, str, str]] = []
 
     @staticmethod
     def _build_pending_key(internal_message_id: str, driver_id: str) -> Tuple[str, str]:
@@ -130,12 +135,14 @@ class OutboundTracker:
 
         Raises:
             ValueError: 当同一个 ``internal_message_id`` 与 ``driver_id`` 组合已经存在
-                未完成记录时抛出。
+                未完成记录或尚未确认的 UNKNOWN 记录时抛出。
         """
         now = time.monotonic()
         self._cleanup_expired(now)
         pending_key = self._build_pending_key(internal_message_id, driver_id)
 
+        if pending_key in self._uncertain:
+            raise ValueError(f"消息 {internal_message_id} 在驱动 {driver_id} 上投递结果未知，确认前不能重发")
         if pending_key in self._pending:
             raise ValueError(f"消息 {internal_message_id} 在驱动 {driver_id} 上已存在未完成的出站跟踪记录")
 
@@ -153,7 +160,7 @@ class OutboundTracker:
         return record
 
     def finish_tracking(self, receipt: DeliveryReceipt) -> Optional[PendingOutboundRecord]:
-        """使用最终回执结束一条出站跟踪。
+        """使用回执结束本地出站跟踪，UNKNOWN 单独保留至确认或过期。
 
         Args:
             receipt: 规范化后的最终投递回执。
@@ -165,17 +172,26 @@ class OutboundTracker:
         self._cleanup_expired(now)
 
         pending_record: Optional[PendingOutboundRecord] = None
+        pending_key: Optional[Tuple[str, str]] = None
         if receipt.driver_id:
             pending_key = self._build_pending_key(receipt.internal_message_id, receipt.driver_id)
-            pending_record = self._pending.pop(pending_key, None)
         else:
-            matched_records = [
-                key
-                for key, record in self._pending.items()
-                if record.internal_message_id == receipt.internal_message_id
-            ]
-            if len(matched_records) == 1:
-                pending_record = self._pending.pop(matched_records[0], None)
+            matched_keys = {
+                key for key in self._pending.keys() | self._uncertain.keys()
+                if key[0] == receipt.internal_message_id
+            }
+            if len(matched_keys) == 1:
+                pending_key = matched_keys.pop()
+        if pending_key is not None:
+            pending_record = self._pending.pop(pending_key, None)
+            if receipt.status == DeliveryStatus.UNKNOWN:
+                # 迟到 ACK 可能已先结束跟踪；后来的取消结果不能重新打开 UNKNOWN。
+                if pending_record is not None or pending_key in self._uncertain:
+                    expires_at = now + self._ttl_seconds
+                    self._uncertain[pending_key] = StoredDeliveryReceipt(receipt, now, expires_at)
+                    heapq.heappush(self._uncertain_expire_heap, (expires_at, *pending_key))
+            else:
+                self._uncertain.pop(pending_key, None)
 
         if receipt.external_message_id:
             expires_at = now + self._ttl_seconds
@@ -217,6 +233,12 @@ class OutboundTracker:
             return matched_records[0]
         return None
 
+    def get_uncertain(self, internal_message_id: str, driver_id: str) -> Optional[DeliveryReceipt]:
+        """读取已结束但结果未知的投递；保留至迟到回执确认或 TTL 到期。"""
+        self._cleanup_expired(time.monotonic())
+        stored = self._uncertain.get(self._build_pending_key(internal_message_id, driver_id))
+        return stored.receipt if stored is not None else None
+
     def get_receipt_by_external_id(self, external_message_id: str) -> Optional[DeliveryReceipt]:
         """根据外部平台消息 ID 查询已完成回执。
 
@@ -236,6 +258,8 @@ class OutboundTracker:
         self._pending_expire_heap.clear()
         self._receipts_by_external_id.clear()
         self._receipt_expire_heap.clear()
+        self._uncertain.clear()
+        self._uncertain_expire_heap.clear()
 
     def _cleanup_expired(self, now: float) -> None:
         """清理内存中已经过期的待完成记录与已保存回执。
@@ -245,6 +269,12 @@ class OutboundTracker:
         """
         self._cleanup_expired_pending(now)
         self._cleanup_expired_receipts(now)
+        while self._uncertain_expire_heap and self._uncertain_expire_heap[0][0] <= now:
+            expires_at, message_id, driver_id = heapq.heappop(self._uncertain_expire_heap)
+            key = self._build_pending_key(message_id, driver_id)
+            stored = self._uncertain.get(key)
+            if stored is not None and stored.expires_at == expires_at:
+                self._uncertain.pop(key)
 
     def _cleanup_expired_pending(self, now: float) -> None:
         """清理已经过期的待完成记录。

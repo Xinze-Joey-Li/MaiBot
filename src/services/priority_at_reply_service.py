@@ -51,11 +51,19 @@ class PriorityAtReplyService:
             return False
         message.is_at = True
         message.is_mentioned = True
-        # 在保存和注册前标记归属，普通 Planner 不再重复调度这条消息。
-        message.message_info.additional_config["priority_at_handled"] = True
+        # 这里只识别候选，实际接纳成功前不转移普通 Planner 的处理资格。
+        message.message_info.additional_config["priority_at_requested"] = True
         return True
 
-    def start_reply(self, message: "SessionMessage", runtime: "MaisakaHeartFlowChatting") -> bool:
+    def owns(self, message: "SessionMessage") -> bool:
+        """已接纳的消息（含运行、排队和近期完成）不能退回普通 Planner。"""
+        key = (message.session_id, message.message_id)
+        return key in self._tasks or key in self._pending_keys or key in self._seen
+
+    def start_reply(
+        self, message: "SessionMessage", runtime: "MaisakaHeartFlowChatting",
+        *, history: List["LLMContextMessage"] | None = None,
+    ) -> bool:
         key = (message.session_id, message.message_id)
         if self._closing or key in self._tasks or key in self._pending_keys or key in self._seen:
             return False
@@ -71,7 +79,7 @@ class PriorityAtReplyService:
                 f"running={len(self._tasks)} pending={len(self._pending)} session_pending={queued_for_session}"
             )
             priority_queued(self, message, overloaded=True)
-            # 拒绝项不写入去重缓存，平台稍后重投仍可重新接纳；不额外创建发送任务。
+            # 拒绝项不取得处理权，由本次入站的普通 Planner 路径继续处理。
             return False
         priority_queued(self, message)
         self._seen.add(key)
@@ -79,7 +87,7 @@ class PriorityAtReplyService:
         while len(self._seen_order) > 2000:
             self._seen.discard(self._seen_order.popleft())
         # 每次回复使用独立上下文快照，不共享 Replyer 可变状态，也不加入普通 turn 队列。
-        self._pending.append((message, runtime, list(runtime._chat_history)))
+        self._pending.append((message, runtime, list(runtime._chat_history if history is None else history)))
         self._pending_keys.add(key)
         self._dispatch()
         return True

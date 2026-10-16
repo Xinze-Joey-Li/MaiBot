@@ -3,6 +3,7 @@
 from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
+import asyncio
 import os
 import traceback
 
@@ -838,7 +839,7 @@ class ChatBot:
                     logger.info(f"[正则表达式过滤]消息匹配到{pattern}，filtered")
                     return
 
-            chat_manager.register_message(message)
+            await asyncio.to_thread(chat_manager.register_message, message)
 
             platform = message.platform
             user_id = user_info.user_id
