@@ -89,13 +89,14 @@ class ChatManager:
         self.sessions: Dict[str, BotChatSession] = {}  # session_id -> BotChatSession
         self.last_messages: Dict[str, "SessionMessage"] = {}  # session_id -> SessionMessage
 
-    async def initialize(self):
-        """初始化聊天管理器"""
+    async def initialize(self) -> None:
+        """初始化聊天管理器；持久化会话恢复失败时向启动方传播。"""
         try:
             await self.load_all_sessions_from_db()
             logger.debug(f"已加载 {len(self.sessions)} 个会话记录到内存中")
         except Exception as e:
-            logger.error(f"初始化聊天管理器出现错误: {e}")
+            logger.error(f"初始化聊天管理器出现错误: {e}", exc_info=True)
+            raise
 
     async def get_or_create_session(
         self,
@@ -257,13 +258,11 @@ class ChatManager:
 
     async def load_all_sessions_from_db(self):
         """从数据库加载全部会话记录到内存中"""
-        self.sessions.clear()
         try:
             await asyncio.to_thread(self._load_sessions_from_db)
         except Exception as e:
             logger.error(f"从数据库加载会话记录时发生错误: {e}")
-            self.sessions.clear()
-            raise e
+            raise
 
     async def regularly_save_sessions(self, interval_seconds: int = 300):
         """定期将会话记录保存到数据库中
@@ -530,15 +529,19 @@ class ChatManager:
             logger.error(f"从数据库获取已有会话失败: session_id={normalized_session_id} error={e}")
             return None
 
-    def _load_sessions_from_db(self):
-        """从数据库加载单个会话记录"""
-        with get_db_session() as session:
-            statements = select(ChatSession)
-            for model_instance in session.exec(statements).all():
-                bot_chat_session = BotChatSession.from_db_instance(model_instance)
-                self.sessions[bot_chat_session.session_id] = bot_chat_session
-                if bot_chat_session.session_id in self.last_messages:
-                    bot_chat_session.set_context(self.last_messages[bot_chat_session.session_id])
+    def _load_sessions_from_db(self) -> None:
+        """从数据库加载全部会话，完整读取成功后才替换内存缓存。"""
+        # 与创建、身份更新及批量保存共用线程锁，恢复期间不暴露部分结果。
+        with self._session_update_lock:
+            restored: Dict[str, BotChatSession] = {}
+            with get_db_session() as session:
+                statements = select(ChatSession)
+                for model_instance in session.exec(statements).all():
+                    bot_chat_session = BotChatSession.from_db_instance(model_instance)
+                    restored[bot_chat_session.session_id] = bot_chat_session
+                    if bot_chat_session.session_id in self.last_messages:
+                        bot_chat_session.set_context(self.last_messages[bot_chat_session.session_id])
+            self.sessions = restored
 
     def _save_session(self, session: BotChatSession):
         """将会话记录保存到数据库"""

@@ -799,23 +799,41 @@ class PluginRuntimeManager(
             logger.info(
                 f"已启动 {len(started_supervisors)} 个独立插件运行时：{'；'.join(runtime_descriptions)}"
             )
-        except Exception as e:
-            logger.error(f"插件运行时启动失败: {e}", exc_info=True)
-            await self._stop_plugin_file_watcher()
-            if self._config_reload_callback_registered:
-                config_manager.unregister_reload_callback(self._config_reload_callback)
-                self._config_reload_callback_registered = False
-            await asyncio.gather(*(sv.stop() for sv in started_supervisors), return_exceptions=True)
-            platform_io_manager.clear_inbound_dispatcher()
+        except BaseException as error:
+            logger.error(f"插件运行时启动失败: {error}", exc_info=True)
+            # 失败与取消都必须撤回已创建的资源，再把原始异常交还启动方。
+            # 包含尚未完成 start 的 Supervisor，不能只清理成功返回的列表。
+            cleanup_steps = [
+                self._stop_plugin_file_watcher,
+                *(supervisor.stop for supervisor in self.supervisors),
+                platform_io_manager.stop,
+                self._hook_dispatcher.stop,
+            ]
             try:
-                await platform_io_manager.stop()
-            except Exception as platform_io_exc:
-                logger.warning(f"Platform IO 停止失败: {platform_io_exc}")
-            await self._hook_dispatcher.stop()
-            self._started = False
-            self._notify_status_changed()
-            self._builtin_supervisor = None
-            self._third_party_supervisor = None
+                for cleanup in cleanup_steps:
+                    try:
+                        await cleanup()
+                    except Exception:
+                        logger.exception("插件运行时启动回滚步骤失败")
+                try:
+                    platform_io_manager.clear_inbound_dispatcher()
+                except Exception:
+                    logger.exception("插件运行时启动回滚清除入站分发失败")
+                if self._config_reload_callback_registered:
+                    try:
+                        config_manager.unregister_reload_callback(self._config_reload_callback)
+                    except Exception:
+                        logger.exception("插件运行时启动回滚移除配置回调失败")
+            finally:
+                self._config_reload_callback_registered = False
+                self._started = False
+                self._builtin_supervisor = None
+                self._third_party_supervisor = None
+                try:
+                    self._notify_status_changed()
+                except Exception:
+                    logger.exception("插件运行时启动失败状态通知异常")
+            raise
 
     async def stop(self) -> None:
         """停止所有插件运行时"""
