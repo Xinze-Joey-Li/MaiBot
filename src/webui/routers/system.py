@@ -17,7 +17,6 @@ from sqlmodel import col, select
 
 import asyncio
 import mimetypes
-import os
 import sqlite3
 import time
 
@@ -1426,42 +1425,24 @@ def _delete_database_records(
 
 
 async def _stop_runtime_before_restart() -> None:
-    """WebUI 重启前主动停止插件运行时，避免遗留 runner 子进程。"""
-    try:
-        from src.core.event_bus import event_bus
-        from src.core.types import EventType
+    """在主循环使用与关机相同的事务等待和队列排空流程。"""
+    from src.common.runtime_shutdown import shutdown_runtime
+    from src.common.shutdown import request_shutdown
 
-        await event_bus.emit(event_type=EventType.ON_STOP)
-    except Exception as exc:
-        logger.warning(f"WebUI 重启前触发 ON_STOP 事件失败: {exc}")
-
-    try:
-        from src.plugin_runtime.integration import get_plugin_runtime_manager
-
-        await get_plugin_runtime_manager().stop()
-    except Exception as exc:
-        logger.error(f"WebUI 重启前停止插件运行时失败: {exc}", exc_info=True)
-
-    try:
-        from src.manager.async_task_manager import async_task_manager
-
-        await async_task_manager.stop_and_wait_all_tasks()
-    except Exception as exc:
-        logger.warning(f"WebUI 重启前停止异步任务失败: {exc}")
+    request_shutdown("webui_restart", exit_code=_RESTART_EXIT_CODE)
+    await shutdown_runtime()
 
 
 async def _delayed_restart() -> None:
     await asyncio.sleep(0.5)  # 延迟 0.5 秒，确保响应已发送
-    logger.info("WebUI 请求重启，正在停止插件运行时")
     from src.common.runtime_loop import run_on_main_loop
 
     try:
         await run_on_main_loop(_stop_runtime_before_restart())
-    except Exception as exc:
-        logger.error(f"WebUI 重启前清理运行时失败，将继续退出以触发外部 runner 重启: {exc}", exc_info=True)
-    finally:
-        logger.info(f"WebUI 请求重启，退出代码 {_RESTART_EXIT_CODE}")
-        os._exit(_RESTART_EXIT_CODE)
+    except Exception:
+        # 清理失败必须完整暴露；不能用硬退出掩盖尚未结束的事务。
+        logger.exception("WebUI 重启清理失败")
+        raise
 
 
 @router.post("/restart", response_model=RestartResponse)

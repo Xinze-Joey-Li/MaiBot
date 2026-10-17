@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
 from rich.traceback import install
 
@@ -9,6 +9,8 @@ import time
 from src.common.i18n import t
 from src.common.logger import get_logger
 from src.common.runtime_loop import set_main_loop
+from src.common.runtime_shutdown import register_main_system, shutdown_runtime
+from src.common.shutdown import is_shutdown_requested, shutdown_exit_code
 from src.config.config import config_manager, global_config
 from src.manager.async_task_manager import async_task_manager
 from src.prompt.prompt_manager import prompt_manager
@@ -55,6 +57,9 @@ class MainSystem:
         self.webui_server: ThreadedWebUIServer | None = None  # 独立线程中的 WebUI 服务器
         self._message_handlers_registered = False
         self.watchdog_task: Optional[asyncio.Task[None]] = None
+        self._runtime_task: Optional[asyncio.Task] = None
+        self._scheduled_tasks: List[asyncio.Task] = []
+        register_main_system(self)
 
     def _ensure_message_server(self) -> None:
         """按需初始化消息 API，避免阻塞主启动链路的早期阶段。"""
@@ -103,6 +108,7 @@ class MainSystem:
 
     async def initialize(self) -> None:
         """初始化系统组件"""
+        self._runtime_task = asyncio.current_task()
         logger.info(t("startup.waking_up", nickname=global_config.bot.nickname))
         from src.maisaka.mode_policy import log_reply_trigger_mode
 
@@ -222,6 +228,7 @@ class MainSystem:
 
     async def schedule_tasks(self) -> None:
         """调度定时任务"""
+        self._runtime_task = asyncio.current_task()
         try:
             from src.chat.image_system.image_cache_cleanup import periodic_image_cache_cleanup
             from src.emoji_system.emoji_cache_cleanup import periodic_emoji_cache_cleanup
@@ -261,7 +268,8 @@ class MainSystem:
             if image_path_maintenance_needed:
                 tasks.append(run_image_path_maintenance_background())
 
-            await asyncio.gather(*tasks)
+            self._scheduled_tasks = [asyncio.create_task(task) for task in tasks]
+            await asyncio.gather(*self._scheduled_tasks)
         except asyncio.CancelledError:
             logger.info(t("startup.schedule_cancelled"))
             raise
@@ -275,35 +283,16 @@ async def main() -> None:
         await system.initialize()
         await system.schedule_tasks()
     finally:
-        if system.webui_server:
-            await system.webui_server.shutdown()
-        if system.watchdog_task is not None:
-            system.watchdog_task.cancel()
-            system.watchdog_task = None
-        from src.A_memorix.host_service import a_memorix_host_service
-        from src.chat.image_system.image_manager import image_manager
-        from src.emoji_system.emoji_manager import emoji_manager
-        from src.mcp_module.service import get_mcp_service
-        from src.plugin_runtime.integration import get_plugin_runtime_manager
-        from src.services.memory_flow_service import memory_automation_service
-        from src.services.priority_at_reply_service import priority_at_reply_service
-        from src.services.tag_extraction_service import tag_extraction_service
-        from src.services.tag_memory_service import tag_memory_service
-
-        await priority_at_reply_service.shutdown()
-        await tag_extraction_service.shutdown()
-        await tag_memory_service.shutdown()
-        emoji_manager.shutdown()
-        await image_manager.shutdown()
-        await memory_automation_service.shutdown()
-        await a_memorix_host_service.stop()
-        await get_plugin_runtime_manager().bridge_event("on_stop")
-        await get_plugin_runtime_manager().stop()
-        await async_task_manager.stop_and_wait_all_tasks()
-        await get_mcp_service().close()
-        await config_manager.stop_file_watcher()
-        set_main_loop(None)
+        try:
+            await shutdown_runtime(system)
+        finally:
+            set_main_loop(None)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        if not is_shutdown_requested():
+            raise
+    sys.exit(shutdown_exit_code())

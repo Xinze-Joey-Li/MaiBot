@@ -11,6 +11,7 @@ from maim_message import MessageBase
 
 from src.chat.heart_flow.heartflow_message_processor import HeartFCMessageReceiver
 from src.chat.heart_flow.heartflow_manager import heartflow_manager
+from src.common.shutdown import is_shutdown_requested
 from src.common.logger import get_logger
 from src.common.utils.utils_message import MessageUtils
 from src.common.utils.utils_session import SessionUtils
@@ -719,6 +720,8 @@ class ChatBot:
         Args:
             message_data: 适配器整理后的统一消息字典。
         """
+        if is_shutdown_requested():
+            return
         try:
             # 确保所有任务已启动
             await self._ensure_started()

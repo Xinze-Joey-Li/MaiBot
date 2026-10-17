@@ -210,8 +210,8 @@ class WebUIServer:
         finally:
             self._maybe_unregister_reload_callback()
 
-    async def shutdown(self):
-        """关闭服务器"""
+    async def shutdown(self, timeout: Optional[float] = 3.0) -> None:
+        """关闭服务器；进程关停时 timeout=None 等待在途请求完成。"""
         if self._watchdog_task is not None:
             self._watchdog_task.cancel()
             self._watchdog_task = None
@@ -219,7 +219,7 @@ class WebUIServer:
             logger.info("正在关闭 WebUI 服务器...")
             self._server.should_exit = True
             try:
-                await asyncio.wait_for(self._server.shutdown(), timeout=3.0)
+                await asyncio.wait_for(self._server.shutdown(), timeout=timeout)
                 logger.info("✅ WebUI 服务器已关闭")
             except asyncio.TimeoutError:
                 logger.warning("⚠️ WebUI 服务器关闭超时")
@@ -293,6 +293,8 @@ class ThreadedWebUIServer:
                 if pending_tasks:
                     loop.run_until_complete(asyncio.gather(*pending_tasks, return_exceptions=True))
                 loop.run_until_complete(loop.shutdown_asyncgens())
+                # WebUI 的 to_thread SQLite 工作不会因包装任务取消而停止。
+                loop.run_until_complete(loop.shutdown_default_executor())
             except Exception as exc:
                 logger.debug(f"清理 WebUI 线程事件循环时出现异常: {exc}")
             finally:
@@ -342,7 +344,7 @@ class ThreadedWebUIServer:
         future = asyncio.run_coroutine_threadsafe(server.reload_app(), loop)
         await asyncio.wrap_future(future)
 
-    async def shutdown(self, timeout: float = 5.0) -> None:
+    async def shutdown(self, timeout: Optional[float] = 5.0) -> None:
         """关闭 WebUI 专用线程。"""
         self._maybe_unregister_reload_callback()
 
@@ -356,7 +358,7 @@ class ThreadedWebUIServer:
         loop = self._loop
         server = self._server
         if loop is not None and server is not None and loop.is_running():
-            future = asyncio.run_coroutine_threadsafe(server.shutdown(), loop)
+            future = asyncio.run_coroutine_threadsafe(server.shutdown(timeout=timeout), loop)
             try:
                 await asyncio.wait_for(asyncio.wrap_future(future), timeout=timeout)
             except asyncio.TimeoutError:

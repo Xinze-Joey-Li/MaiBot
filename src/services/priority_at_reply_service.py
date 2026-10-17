@@ -32,6 +32,7 @@ class PriorityAtReplyService:
         self._pending_keys: Set[Tuple[str, str]] = set()
         self._running_per_session: Dict[str, int] = {}
         self._closing = False
+        self._draining = False
         self._tasks: Dict[Tuple[str, str], asyncio.Task] = {}
         self._replay_traces: Dict[Tuple[str, str], Trace] = {}
         self._seen: Set[Tuple[str, str]] = set()
@@ -65,7 +66,7 @@ class PriorityAtReplyService:
         *, history: List["LLMContextMessage"] | None = None,
     ) -> bool:
         key = (message.session_id, message.message_id)
-        if self._closing or key in self._tasks or key in self._pending_keys or key in self._seen:
+        if self._closing or self._draining or key in self._tasks or key in self._pending_keys or key in self._seen:
             return False
         queued_for_session = sum(item[0].session_id == message.session_id for item in self._pending)
         can_start = (len(self._tasks) < self._max_concurrent
@@ -237,7 +238,14 @@ class PriorityAtReplyService:
         await send_after_text(message.session_id, result.selected_emoji_tag,
                               (message.processed_plain_text or "") + "\n" + result.completion.response_text)
 
-    async def shutdown(self) -> None:
+    async def shutdown(self, *, drain: bool = False) -> None:
+        self._draining = True
+        if drain:
+            # 拒绝新任务，继续按原并发限制派发已接纳的内存队列。
+            while self._tasks or self._pending:
+                self._dispatch()
+                await asyncio.gather(*list(self._tasks.values()), return_exceptions=True)
+                await asyncio.sleep(0)  # 让完成回调释放额度并派发下一批。
         self._closing = True
         priority_cancel_queued(self)
         self._pending.clear()

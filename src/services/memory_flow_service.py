@@ -12,6 +12,7 @@ import time
 
 from json_repair import repair_json
 
+from src.common.shutdown import drain_worker_queue
 from src.common.logger import get_logger
 from src.common.database.database import ROOT_PATH
 from src.common.message_repository import count_messages, find_messages
@@ -65,7 +66,10 @@ class PersonFactWritebackService:
             except asyncio.CancelledError:
                 pass
         if worker is None:
+            if not self._queue.empty():
+                raise RuntimeError("写回队列仍有积压，但 worker 不存在")
             return
+        await drain_worker_queue(worker, self._queue)
         worker.cancel()
         try:
             await worker
@@ -127,7 +131,7 @@ class PersonFactWritebackService:
 
     async def _worker_loop(self) -> None:
         try:
-            while not self._stopping:
+            while not self._stopping or not self._queue.empty():
                 message = await self._queue.get()
                 try:
                     await self._handle_message(message)
@@ -536,7 +540,10 @@ class ChatSummaryWritebackService:
         worker = self._worker_task
         self._worker_task = None
         if worker is None:
+            if not self._queue.empty():
+                raise RuntimeError("写回队列仍有积压，但 worker 不存在")
             return
+        await drain_worker_queue(worker, self._queue)
         worker.cancel()
         try:
             await worker
@@ -557,7 +564,7 @@ class ChatSummaryWritebackService:
 
     async def _worker_loop(self) -> None:
         try:
-            while not self._stopping:
+            while not self._stopping or not self._queue.empty():
                 message = await self._queue.get()
                 try:
                     await self._handle_message(message)
@@ -1017,10 +1024,16 @@ class MemoryAutomationService:
     async def shutdown(self) -> None:
         if not self._started:
             return
-        await self.image_writeback.shutdown()
-        await self.chat_summary_writeback.shutdown()
-        await self.fact_writeback.shutdown()
+        errors: List[Exception] = []
+        for service in (self.image_writeback, self.chat_summary_writeback, self.fact_writeback):
+            try:
+                await service.shutdown()
+            except Exception as error:
+                errors.append(error)
+                logger.exception("记忆写回关停失败，继续清理其余队列")
         self._started = False
+        if errors:
+            raise ExceptionGroup("记忆写回关停存在失败步骤", errors)
 
     async def on_incoming_message(self, message: Any) -> None:
         if not self._started:

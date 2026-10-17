@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional
 import asyncio
 
 from src.decision_replay.replies import platform_send
+from src.common.shutdown import is_shutdown_requested
 from src.common.logger import get_logger
 from src.core.local_operator import LOCAL_PLATFORM_BOT_IDS
 from src.platform_io.drivers.base import PlatformIODriver
@@ -467,6 +468,8 @@ class PlatformIOManager:
             否则返回 ``False``。
         """
 
+        if is_shutdown_requested():
+            return False
         if not self._receive_route_table.has_binding_for_driver(envelope.route_key, envelope.driver_id):
             logger.info(
                 f"忽略未登记到接收路由表的入站消息: route={envelope.route_key} "
@@ -486,6 +489,11 @@ class PlatformIOManager:
 
         self._schedule_inbound_dispatch(envelope)
         return True
+
+    async def drain_inbound(self) -> None:
+        """关闭新入站后，等待已验收的后台分发完成。"""
+        if self._inbound_dispatch_tasks:
+            await asyncio.gather(*list(self._inbound_dispatch_tasks), return_exceptions=True)
 
     def _schedule_inbound_dispatch(self, envelope: InboundMessageEnvelope) -> None:
         """将已验收的入站消息投递到后台处理任务。

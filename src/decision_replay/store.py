@@ -3,7 +3,7 @@
 from contextlib import closing
 from pathlib import Path
 from queue import Empty, Full, Queue
-from threading import Lock, RLock, Thread
+from threading import Event, Lock, RLock, Thread
 from typing import Any, Callable, Dict, List, Optional
 
 import json
@@ -21,6 +21,7 @@ class ReplayStore:
         self.retention_days = retention_days
         self.retention_resolver: Optional[Callable[[], int]] = None
         self.queue: Queue = Queue(maxsize=capacity)
+        self._closing = Event()
         self.lock = Lock()
         self.persistence_lock = RLock()
         self.worker: Optional[Thread] = None
@@ -78,10 +79,12 @@ class ReplayStore:
     def submit(self, event: Dict[str, Any]) -> None:
         try:
             with self.lock:
+                if self._closing.is_set():
+                    raise RuntimeError("Decision Replay writer is closed")
                 if self.worker is None or not self.worker.is_alive():
                     self.worker = Thread(target=self._run, name="decision-replay-writer", daemon=True)
                     self.worker.start()
-            self.queue.put_nowait(event)
+                self.queue.put_nowait(event)
         except Full:
             self.dropped += 1
             self._warning("Decision Replay queue full; event dropped")
@@ -95,7 +98,7 @@ class ReplayStore:
             logger.warning(text, exc_info=False)
 
     def _run(self) -> None:
-        while True:
+        while not self._closing.is_set() or not self.queue.empty():
             batch = []
             try:
                 batch.append(self.queue.get(timeout=1))
@@ -289,6 +292,16 @@ class ReplayStore:
         while self.queue.unfinished_tasks and time.monotonic() < deadline:
             time.sleep(0.01)
         return not self.queue.unfinished_tasks
+
+    def close(self) -> None:
+        """停止接纳观察事件，等待已排队批次提交并退出写入线程。"""
+        with self.lock:
+            self._closing.set()
+            worker = self.worker
+        if worker is not None:
+            worker.join()
+        if self.queue.unfinished_tasks:
+            raise RuntimeError("Decision Replay writer exited with unfinished events")
 
     def query(
         self,
