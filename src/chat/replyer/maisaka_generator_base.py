@@ -124,6 +124,9 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
             from src.services.owner_control_service import owner_security_prompt
 
             prompt_lines.append(owner_security_prompt())
+            from src.services.owner_admin.override_runtime import presentation_prompt
+
+            prompt_lines.append(presentation_prompt(self._resolve_session_id(None)))
             emotion_suffix = build_personality_emotion_suffix(global_config.experimental.emotion_trait)
             if emotion_suffix:
                 prompt_lines.append(emotion_suffix)
@@ -132,14 +135,19 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
             logger.warning(f"构建 Maisaka 人设提示词失败: {exc}")
             return "你的名字是麦麦。\n是人类。"
 
-    @staticmethod
-    def _select_reply_style() -> str:
+    def _select_reply_style(self) -> str:
         """返回 replyer 使用的基础表达风格。"""
-        return global_config.personality.reply_style
+        from src.services.owner_admin.override_runtime import presentation_prompt
 
-    @staticmethod
-    def _select_temporary_reply_style() -> str:
+        return presentation_prompt(self._resolve_session_id(None)) or global_config.personality.reply_style
+
+    def _select_temporary_reply_style(self) -> str:
         """按配置概率选择本次回复的一次性备用表达风格。"""
+        from src.services.owner_admin.override_runtime import presentation
+
+        current = presentation(self._resolve_session_id(None))
+        if current.style or current.persona:
+            return ""
         personality_config = global_config.personality
         candidate_styles = [style.strip() for style in personality_config.multiple_reply_style if style.strip()]
 
@@ -753,6 +761,11 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
         requested_reply_style_message = self._build_requested_reply_style_message(
             str((reply_tool_args or {}).get("reply_style") or "")
         )
+        from src.services.owner_admin.override_runtime import presentation
+
+        current_presentation = presentation(self._resolve_session_id(None))
+        if current_presentation.style or current_presentation.persona:
+            requested_reply_style_message = ""
 
         items.append(ContextItemBuilder().set_role(RoleType.System).add_text_content(system_prompt).build())
         items.extend(self._build_history_messages(chat_history, enable_visual_message))

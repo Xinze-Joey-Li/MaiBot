@@ -98,7 +98,10 @@ class DynamicReplyTurnGate:
 
         likelihood_input = self._build_likelihood_input(external_messages, now, pending_messages=external_messages)
         score = score_reply_likelihood(likelihood_input)
-        gate_decision = self._gate.evaluate(score.probability, frequency, now)
+        from src.services.owner_admin.overrides import override_manager
+
+        snapshot = override_manager.snapshot(self._runtime.session_id)
+        gate_decision = self._gate.evaluate(score.probability, frequency, now, threshold_delta=snapshot.threshold_delta)
         last_reply_at = max((message.timestamp.timestamp() for message in self._runtime._chat_history
                              if message.source in {"guided_reply", "priority_at_reply", "silence_emoji", "auto_repeat"}),
                             default=0.0)
@@ -113,6 +116,7 @@ class DynamicReplyTurnGate:
                          'threshold': gate_decision.threshold,
                          'threshold_source': 'static_table' if len(self._gate._proactive_scores) < MIN_WINDOW_SCORE_COUNT else 'window_quantile',
                          'budget': asdict(gate_decision), 'observation': observed,
+                         'owner_overrides': {'ids': snapshot.override_ids, 'threshold_delta': snapshot.threshold_delta},
                          'observation_delay_seconds': delay, 'contribution_unit': 'logit', 'interest_weights': 'not_integrated'}
         if observed:
             self._gate.close_round()

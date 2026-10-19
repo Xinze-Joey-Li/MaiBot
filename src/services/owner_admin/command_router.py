@@ -65,6 +65,19 @@ class OwnerAdminCommandRouter:
                     ),
                     read_service.handle,
                 )
+            from .control_commands import CONTROL_ACTIONS
+            from .control_service import OwnerControlService
+
+            control_service = OwnerControlService()
+            for command, permission_id in CONTROL_ACTIONS.items():
+                self.register_action(
+                    AdminActionSpec(
+                        f"owner_admin.control.{command}", permission_id, frozenset({"chat"}),
+                        owner_required=True, allowed_chat_types=frozenset({"private"}),
+                        audit_parameter_keys=("group_id", "property", "value", "duration", "priority", "cancel"),
+                    ),
+                    control_service.handle,
+                )
 
     def _register_builtin_actions(self) -> None:
         self.register_action(
@@ -398,7 +411,11 @@ class OwnerAdminCommandRouter:
             status="succeeded",
             message="主人管理：/dfy help、/dfy whoami。主人私聊只读查询：status、tokens 1h/24h/7d、"
                     "stats [群ID] 24h、models、errors 24h、replay 消息ID、replay latest 群ID、"
-                    "persona show、memory me [关键词]、learning status、chats、health。追加 --page N 翻页。",
+                    "persona show、memory me [关键词]、learning status、chats、health。追加 --page N 翻页。\n"
+                    "行为管理同样仅主人私聊：mute/unmute 群ID、frequency 群ID 数值 时长/reset、"
+                    "threshold 群ID ±百分比 时长/reset、mode 群ID quiet/active/mention_only 时长或normal、"
+                    "style gentle/calm 时长或reset、persona gentle/playful/calm 时长或default、"
+                    "chat config 群ID、chat set 群ID frequency/threshold/mode 值、overrides [群ID]。mute需时长，时长1m至7d。",
         )
 
     async def _whoami(self, request: AdminActionRequest) -> AdminActionResult:
@@ -522,6 +539,11 @@ class OwnerAdminCommandRouter:
             read_command = parse_read_command(args)
             if read_command is not None:
                 return _ParsedCommand(*read_command)
+            from .control_commands import parse_control_command
+
+            control_command = parse_control_command(args)
+            if control_command is not None:
+                return _ParsedCommand(*control_command)
             subcommand = args[1].lower() if len(args) > 1 else "help"
             if subcommand == "help" and len(args) == 2:
                 return _ParsedCommand("owner_admin.help", {})

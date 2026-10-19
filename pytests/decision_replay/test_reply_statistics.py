@@ -33,7 +33,7 @@ def message(oid="m", kind="text", session="g", group=True):
     parts = [TextComponent("mock")] if kind == "text" else [EmojiComponent(binary_hash="mock", binary_data=b"x")]
     if kind == "mixed":
         parts = [TextComponent("mock"), ImageComponent(binary_hash="mock", binary_data=b"x")]
-    return SimpleNamespace(message_id=oid, session_id=session, platform="test",
+    return SimpleNamespace(message_id=oid, session_id=session, platform="test", is_at=False,
         message_info=SimpleNamespace(group_info=SimpleNamespace(group_id="g") if group else None, additional_config={}),
         raw_message=MessageSequence(parts))
 

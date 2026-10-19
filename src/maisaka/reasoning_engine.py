@@ -1043,6 +1043,9 @@ class MaisakaReasoningEngine:
     ) -> TurnStartContext:
         """消费触发信号并准备本轮初始消息与触发消息。"""
 
+        from src.services.owner_admin.override_runtime import begin_turn
+
+        begin_turn(self._runtime)
         message_triggered, timeout_triggered, proactive_triggered = self._drain_ready_turn_triggers(queued_trigger)
         if proactive_triggered:
             self._runtime._clear_focus_cooldown_wakeup_scheduled()
@@ -1061,6 +1064,8 @@ class MaisakaReasoningEngine:
             await self._runtime._wait_for_message_quiet_period()
             self._runtime._mark_message_turn_unscheduled()
 
+        # 安静期内仍可能收到真实 @；收集消息前冻结最终批次，不能漏掉这些直接触发。
+        begin_turn(self._runtime)
         cached_messages = self._runtime._collect_pending_messages() if self._runtime._has_pending_messages() else []
         continuation_logical_turn_id: str | None = None
         if cached_messages:
@@ -1333,7 +1338,7 @@ class MaisakaReasoningEngine:
         timeout_triggered: bool,
         proactive_triggered: bool,
     ) -> None:
-        """回复频率为 0 时只消费消息和维护历史，不进入 Planner。"""
+        """零频率或主人行为覆盖生效时只消费消息和维护历史，不进入 Planner。"""
 
         self._runtime._clear_forced_turn_state()
         if proactive_triggered:
@@ -1347,7 +1352,7 @@ class MaisakaReasoningEngine:
         )
         self._runtime._enter_stop_state()
         if self._runtime._running:
-            self._runtime._update_stage_status("等待消息", "回复频率为 0，已静默接收消息")
+            self._runtime._update_stage_status("等待消息", "静默接收模式，已接收消息")
 
         trigger_labels: list[str] = []
         if cached_messages:
@@ -1357,7 +1362,7 @@ class MaisakaReasoningEngine:
         if proactive_triggered:
             trigger_labels.append("proactive")
         trigger_text = " ".join(trigger_labels) if trigger_labels else "无新消息"
-        logger.info(f"{self._runtime.log_prefix} 回复频率为 0，静默接收并完成历史维护，不进入 Planner；{trigger_text}")
+        logger.info(f"{self._runtime.log_prefix} 零频率或主人行为覆盖：静默接收并完成历史维护，不进入 Planner；{trigger_text}")
 
     def _drain_ready_turn_triggers(
         self,

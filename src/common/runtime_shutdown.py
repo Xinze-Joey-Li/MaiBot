@@ -150,6 +150,7 @@ async def _shutdown(system: "MainSystem") -> None:
         lambda: _component("src.manager.async_task_manager", "async_task_manager").stop_and_wait_all_tasks(),
     )
     await step("关闭 MCP", lambda: _component("src.mcp_module.service", "get_mcp_service")().close())
+    await step("停止覆盖到期协调器", lambda: _component("src.services.owner_admin.overrides", "override_manager").shutdown())
     if system.watchdog_task is not None:
         system.watchdog_task.cancel()
         await asyncio.gather(system.watchdog_task, return_exceptions=True)

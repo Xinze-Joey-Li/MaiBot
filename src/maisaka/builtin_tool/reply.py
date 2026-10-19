@@ -23,6 +23,7 @@ from src.maisaka.context.planner_messages import extract_quote_ids_from_message_
 from src.plugin_runtime.host.message_utils import PluginMessageUtils
 from src.plugin_runtime.host.reply_extensions import ReplyExtensionExecution, build_reply_extensions_schema
 from src.services import send_service
+from src.services.owner_admin.override_runtime import direct_reply
 
 from .context import BuiltinToolRuntimeContext, PostProcessedReplyMessage
 
@@ -329,6 +330,7 @@ def _with_duplicate_target_reply_reminder(
 
 
 @planner_action
+@direct_reply(_normalize_reply_arguments)
 async def handle_tool(
     tool_ctx: BuiltinToolRuntimeContext,
     invocation: ToolInvocation,

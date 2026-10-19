@@ -45,6 +45,7 @@ def runtime(monkeypatch, shutdown_state):
         ("src.services.priority_at_reply_service", "priority_at_reply_service", "shutdown", "priority"),
         ("src.services.tag_extraction_service", "tag_extraction_service", "shutdown", "tag"),
         ("src.services.tag_memory_service", "tag_memory_service", "shutdown", "tag_cleanup"),
+        ("src.services.owner_admin.overrides", "override_manager", "shutdown", "overrides"),
         ("src.chat.image_system.image_manager", "image_manager", "shutdown", "image"),
         ("src.services.memory_flow_service", "memory_automation_service", "shutdown", "memory"),
         ("src.A_memorix.host_service", "a_memorix_host_service", "stop", "kernel"),

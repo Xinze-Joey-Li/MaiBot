@@ -649,8 +649,10 @@ class MaisakaChatLoopService:
         """返回 Planner 使用的行为风格提示词。"""
 
         from src.services.owner_control_service import owner_security_prompt
+        from src.services.owner_admin.override_runtime import presentation_prompt
 
-        return global_config.personality.behavior_style.strip() + "\n" + owner_security_prompt()
+        return "\n".join(filter(None, [global_config.personality.behavior_style.strip(), owner_security_prompt(),
+                                         presentation_prompt(self._session_id)]))
 
     @staticmethod
     def _resolve_llm_request_type(request_kind: str) -> str:

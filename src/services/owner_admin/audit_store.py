@@ -1,11 +1,13 @@
 """与聊天统计分离的主人管理审计与幂等请求存储。"""
 
+from contextlib import closing
+from datetime import datetime, timezone
+from pathlib import Path
+from threading import Lock
+from typing import Any, Mapping, Optional
 import json
 import sqlite3
 import uuid
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Mapping, Optional
 
 from .models import AdminActionRequest
 
@@ -15,6 +17,8 @@ class OwnerAdminAuditStore:
 
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
+        self._schema_lock = Lock()
+        self._schema_ready = False
 
     @staticmethod
     def default_path() -> Path:
@@ -30,13 +34,12 @@ class OwnerAdminAuditStore:
     ) -> tuple[bool, str]:
         """原子地登记请求及审计起始事件，返回是否首次请求及审计 ID。"""
 
-        self._ensure_parent()
+        self._ensure_schema()
         audit_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
         identity = request.actor_identity
         target = request.target
-        with sqlite3.connect(self.path, timeout=5.0) as connection:
-            self._create_schema(connection)
+        with closing(sqlite3.connect(self.path, timeout=5.0)) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
             existing = connection.execute(
                 "SELECT status FROM owner_admin_requests WHERE request_id = ?",
@@ -112,8 +115,9 @@ class OwnerAdminAuditStore:
         status: str,
         error_code: Optional[str],
     ) -> None:
+        self._ensure_schema()
         now = datetime.now(timezone.utc).isoformat()
-        with sqlite3.connect(self.path, timeout=5.0) as connection:
+        with closing(sqlite3.connect(self.path, timeout=5.0)) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
             connection.execute(
                 "UPDATE owner_admin_requests SET status = ?, updated_at = ? WHERE request_id = ?",
@@ -127,6 +131,16 @@ class OwnerAdminAuditStore:
 
     def _ensure_parent(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _ensure_schema(self) -> None:
+        # 首次并发请求不能各自切换 journal_mode；初始化完整成功后才对事务开放。
+        with self._schema_lock:
+            if self._schema_ready:
+                return
+            self._ensure_parent()
+            with closing(sqlite3.connect(self.path, timeout=5.0)) as connection, connection:
+                self._create_schema(connection)
+            self._schema_ready = True
 
     @staticmethod
     def _create_schema(connection: sqlite3.Connection) -> None:

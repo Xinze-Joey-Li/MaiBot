@@ -177,7 +177,7 @@ def test_messages_are_counted_once() -> None:
 
 
 def _build_runtime(*, is_group: bool, history: list) -> SimpleNamespace:
-    return SimpleNamespace(chat_stream=SimpleNamespace(is_group_session=is_group), _chat_history=history)
+    return SimpleNamespace(session_id="test-session", chat_stream=SimpleNamespace(is_group_session=is_group), _chat_history=history)
 
 
 def _build_message(message_id: str, text: str, *, is_mentioned: bool = False, is_at: bool = False) -> SimpleNamespace:

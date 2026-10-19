@@ -160,7 +160,7 @@ class DynamicReplyGate:
         while self._reply_times and self._reply_times[0] < expire_before:
             self._reply_times.popleft()
 
-    def evaluate(self, probability: float, frequency: float, now: float) -> DynamicGateDecision:
+    def evaluate(self, probability: float, frequency: float, now: float, *, threshold_delta: float = 0.0) -> DynamicGateDecision:
         """判断当前这批待处理消息是否放行进入 Planner。"""
 
         self._prune(now)
@@ -182,6 +182,9 @@ class DynamicReplyGate:
             keep_ratio = min(1.0, max(0.0, feedforward_ratio * feedback_factor))
 
         threshold = self._resolve_threshold(proactive_scores, expected_proactive, keep_ratio)
+        # 频率仍控制回复预算；独立阈值只偏移最终概率门槛，不重建判定分支。
+        if keep_ratio > 0:
+            threshold = min(1.0, max(0.0, threshold + threshold_delta))
         return DynamicGateDecision(
             should_trigger=probability >= threshold,
             probability=probability,

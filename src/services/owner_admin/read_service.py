@@ -306,12 +306,15 @@ class OwnerReadService:
 
     def _persona(self, request: AdminActionRequest) -> Tuple[List[str], str]:
         from src.config.config import global_config
+        from .overrides import override_manager
 
         config = global_config.personality
+        snapshot = override_manager.snapshot("", request.actor_identity.bot_account_id)
         return [f"当前基础 personality：{safe_text(config.personality)}",
                 f"当前基础 behavior_style：{safe_text(config.behavior_style)}",
                 f"当前基础 reply_style：{safe_text(config.reply_style)}",
-                "临时覆盖：无统一持久化来源；本摘要不代表每个正在执行的请求的最终 Prompt。"], "读取当前有效配置对象；未修改人格或临时覆盖。"
+                f"主人临时预设：persona={snapshot.persona or '继承'}；style={snapshot.style or '继承'}；"
+                f"override_ids={snapshot.override_ids}；已在途模型请求保留同轮快照。"], "读取当前基础配置与统一有效覆盖；不代表每个请求的全部最终Prompt。"
 
     def _memory(self, request: AdminActionRequest) -> Tuple[List[str], str]:
         from src.config.config import global_config

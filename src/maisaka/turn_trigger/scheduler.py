@@ -86,11 +86,16 @@ class MessageTurnScheduler:
         effective_frequency = runtime._get_effective_reply_frequency()
         formatted_frequency = f"{effective_frequency:.3f}"
         if runtime._is_reply_frequency_silent():
+            from src.services.owner_admin.overrides import override_manager
+
+            snapshot = override_manager.snapshot(runtime.session_id)
+            silent_reason = ("owner_autonomous_suppressed" if not snapshot.autonomous_allowed and effective_frequency > 0
+                             else "silent_frequency")
             logger.info(
                 f"{runtime.log_prefix} 回复频率调度: 频率={formatted_frequency} "
                 f"pending={pending_count} 判定=静默消费"
             )
-            self._replay("reject", "silent_frequency", frequency=effective_frequency)
+            self._replay("reject", silent_reason, frequency=effective_frequency, owner_override_ids=snapshot.override_ids)
             runtime._enqueue_message_turn()
             return
 

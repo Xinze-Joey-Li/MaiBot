@@ -131,6 +131,11 @@ class MainSystem:
         init_start_time = time.time()
 
         await config_manager.start_file_watcher()
+        from src.services.owner_admin.overrides import override_manager
+        from src.services.owner_admin.override_runtime import runtime_changed
+
+        await override_manager.initialize()
+        override_manager.subscribe(runtime_changed)
 
         # 插件 Runner 启动最重，尽早发起以便和后续初始化并行。
         from src.plugin_runtime.integration import get_plugin_runtime_manager

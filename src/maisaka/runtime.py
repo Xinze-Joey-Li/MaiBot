@@ -1046,9 +1046,6 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
 
     def _get_effective_reply_frequency(self) -> float:
         """返回当前会话生效的回复频率。"""
-        if self._is_focus_mode_active_for_current_chat():
-            return 1.0
-
         base_talk_value = self._get_base_reply_frequency()
         if base_talk_value <= 0 or self._talk_frequency_adjust <= 0:
             return 0.0
@@ -1061,7 +1058,12 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
         )
         if talk_value <= 0:
             return 0.0
-        return max(0.0, talk_value * self._talk_frequency_adjust)
+        frequency = 1.0 if self._is_focus_mode_active_for_current_chat() else max(0.0, talk_value * self._talk_frequency_adjust)
+        if self.chat_stream.is_group_session:
+            from src.services.owner_admin.overrides import override_manager
+
+            return override_manager.snapshot(self.session_id).frequency(frequency)
+        return frequency
 
     @staticmethod
     def _format_reply_frequency_for_display(frequency: float) -> str:
@@ -1076,8 +1078,15 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
         return float(global_config.chat.reply_timing.private_talk_value)
 
     def _is_reply_frequency_silent(self) -> bool:
-        """判断当前会话是否处于回复频率为 0 的静默接收模式。"""
-        return self._get_effective_reply_frequency() <= 0.0
+        """判断是否进入静默接收：零频率或主人覆盖限制了非@自主发言。"""
+        if self._get_effective_reply_frequency() <= 0.0:
+            return True
+        from src.services.owner_admin.overrides import override_manager
+        from src.services.owner_admin.override_runtime import turn_has_direct_trigger
+
+        snapshot = override_manager.snapshot(self.session_id)
+        pending_direct = any(message.is_at for message in self.message_cache[self._last_processed_index:])
+        return not snapshot.autonomous_allowed and not (pending_direct or turn_has_direct_trigger(self.session_id))
 
     async def track_reply_effect(
         self,

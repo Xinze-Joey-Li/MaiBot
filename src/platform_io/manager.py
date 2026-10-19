@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional
 import asyncio
 
 from src.decision_replay.replies import platform_send
+from src.services.owner_admin.override_runtime import managed_outbound
 from src.common.shutdown import is_shutdown_requested
 from src.common.logger import get_logger
 from src.core.local_operator import LOCAL_PLATFORM_BOT_IDS
@@ -523,6 +524,7 @@ class PlatformIOManager:
             logger.exception("Platform IO 入站消息后台分发失败")
 
     @platform_send
+    @managed_outbound
     async def send_message(
         self,
         message: "SessionMessage",

@@ -7,6 +7,7 @@ import asyncio
 import random
 
 from src.decision_replay.replies import DeliveryUncertain, priority_action
+from src.services.owner_admin.override_runtime import priority_reply
 from src.decision_replay.recorder import Trace, priority_cancel_queued, priority_queued, traced_priority
 
 if TYPE_CHECKING:
@@ -134,6 +135,7 @@ class PriorityAtReplyService:
 
     @traced_priority
     @priority_action
+    @priority_reply
     async def _reply(
         self,
         message: "SessionMessage",
