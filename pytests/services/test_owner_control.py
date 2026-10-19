@@ -1,16 +1,29 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
+from uuid import uuid4
 
 import pytest
 
 from src.common.data_models.message_component_data_model import TextComponent
+from src.services.owner_admin.audit_store import OwnerAdminAuditStore
+from src.services.owner_admin.command_router import owner_admin_command_router
 from src.services import owner_control_service as service
 
 
 def message(user="100000001", text="/主人 人格", platform="qq"):
-    return SimpleNamespace(platform=platform,session_id="group",raw_message=SimpleNamespace(
-        components=[TextComponent(text)]),message_info=SimpleNamespace(group_info=object(),
-        user_info=SimpleNamespace(user_id=user,user_nickname="主人100000001")))
+    return SimpleNamespace(message_id=str(uuid4()),platform=platform,session_id="group",raw_message=SimpleNamespace(
+        components=[TextComponent(text)]),message_info=SimpleNamespace(
+        group_info=SimpleNamespace(group_id="group-1",group_name="test"),
+        user_info=SimpleNamespace(user_id=user,user_nickname="主人100000001"),
+        additional_config={"account_id":"bot-1"}))
+
+
+@pytest.fixture(autouse=True)
+def isolated_admin_audit(tmp_path, monkeypatch):
+    monkeypatch.setattr(owner_admin_command_router,"audit_store",OwnerAdminAuditStore(tmp_path / "audit.sqlite3"))
+    from src.services.bot_account_service import bot_account_service
+
+    monkeypatch.setattr(bot_account_service,"is_bot_self",lambda platform, account_id: True)
 
 
 @pytest.mark.parametrize("user,platform,allowed",[("100000001","qq",True),("12345","qq",False),

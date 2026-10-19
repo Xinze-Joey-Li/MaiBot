@@ -24,6 +24,7 @@ from src.plugin_runtime.hook_payloads import deserialize_session_message, serial
 from src.plugin_runtime.hook_schema_utils import build_object_schema
 from src.plugin_runtime.host.hook_dispatcher import HookDispatchResult
 from src.plugin_runtime.host.hook_spec_registry import HookSpec, HookSpecRegistry
+from src.services.owner_admin.command_router import owner_admin_command_router
 from src.maisaka.context.clear_context import (
     CLEAR_CONTEXT_COMMAND,
     is_clear_context_command,
@@ -315,6 +316,23 @@ class ChatBot:
                     return True, "没有权限", False
 
                 message.is_command = True
+                operator_context_before_hook = None
+                original_operator_identity = None
+                original_operator_groups = None
+                original_operator_local = False
+                original_operator_message = message
+                if command_info.permission == "operator":
+                    operator_context_before_hook = serialize_session_message(message)
+                    original_operator_identity = (
+                        message.platform,
+                        message.message_info.user_info.user_id,
+                        message.session_id,
+                    )
+                    original_operator_groups = dict(matched_groups)
+                    original_operator_local = is_local_operator(
+                        message.platform,
+                        message.message_info.additional_config,
+                    )
                 before_result, message = await self._invoke_message_hook(
                     "chat.command.before_execute",
                     message,
@@ -334,6 +352,38 @@ class ChatBot:
                     if isinstance(hook_kwargs.get("matched_groups"), dict)
                     else dict(matched_groups)
                 )
+
+                if command_info.permission == "operator":
+                    mutated_operator_context = (
+                        command_name != command_info.name
+                        or plugin_name != command_info.plugin_name
+                        or matched_groups != original_operator_groups
+                        or serialize_session_message(message) != operator_context_before_hook
+                    )
+                    actor_platform, actor_user_id, actor_session_id = original_operator_identity
+                    still_authorized = has_command_permission(
+                        f"{command_info.plugin_name}.{command_info.name}",
+                        actor_platform,
+                        actor_user_id,
+                        actor_session_id,
+                        global_config.plugin.permission,
+                        global_config.plugin.command_permissions,
+                        local_operator=original_operator_local,
+                    )
+                    if mutated_operator_context or not still_authorized:
+                        message = original_operator_message
+                        self._mark_command_message(message, intercept_message_level=1)
+                        await self._store_intercepted_command_message(message)
+                        if not global_config.plugin.silent_permission_denied:
+                            from src.services.send_service import text_to_stream
+
+                            await text_to_stream("命令上下文在授权后发生变化，已拒绝执行。", message.session_id, storage_message=False)
+                        logger.warning(
+                            "operator 命令 Hook 修改了已授权上下文或权限已变化，已拒绝执行: %s.%s",
+                            command_info.plugin_name,
+                            command_info.name,
+                        )
+                        return True, "没有权限", False
 
                 # 获取插件配置
                 plugin_config = component_query_service.get_plugin_config(plugin_name)
@@ -769,6 +819,25 @@ class ChatBot:
             )
 
             message.session_id = session_id  # 正确初始化session_id
+            admin_result = await owner_admin_command_router.handle_message(message)
+            if admin_result is not None:
+                message.is_command = True
+                additional_config = message.message_info.additional_config
+                if not isinstance(additional_config, dict):
+                    additional_config = {}
+                    message.message_info.additional_config = additional_config
+                additional_config["intercept_message_level"] = 1
+                from src.services.send_service import text_to_stream
+
+                sent = await text_to_stream(admin_result.message, message.session_id, storage_message=False)
+                if not sent:
+                    logger.warning(
+                        "主人管理命令已处理，但回执发送失败: status=%s audit_id=%s",
+                        admin_result.status,
+                        admin_result.audit_id,
+                    )
+                return
+
             image_process_report = process_received_images_in_message(message.raw_message.components)
             if image_process_report.compressed_count or image_process_report.discarded_count:
                 image_process_details = []
