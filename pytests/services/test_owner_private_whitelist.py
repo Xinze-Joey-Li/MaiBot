@@ -163,3 +163,42 @@ async def test_repeat_allow_is_idempotent_and_disabled_adapter_stays_disabled(en
     before = env.policy.policy_path.read_bytes()
     assert not (await m3.confirm(env.router, preview)).success
     assert env.policy.policy_path.read_bytes() == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body,kind", [
+    ("添加群聊1234567890进入白名单", "group"),
+    ("添加账号1234567890进白名单", "private"),
+    ("大肥鱼，帮我添加群 1234567890 加入白名单。", "group"),
+    ("请添加QQ号 1234567890 到白名单", "private"),
+])
+async def test_complete_natural_addition_requires_same_private_confirmation(environment, body, kind):
+    env = environment
+    preview = await m3.send(env.router, body)
+    assert preview.status == "preview", preview
+    assert "1234567890" in preview.message
+    assert not env.policy.evaluate(env.identity, chat_type=kind, target_id="1234567890").allowed
+    assert (await m3.confirm(env.router, preview)).success
+    assert env.policy.evaluate(env.identity, chat_type=kind, target_id="1234567890").allowed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", ["添加群聊1234567890进入白名单", "添加账号1234567890进白名单"])
+@pytest.mark.parametrize("user,group", [(m3.USER, False), (m3.OWNER, True), (m3.USER, True)])
+async def test_natural_sentence_does_not_expand_authorization(environment, monkeypatch, body, user, group):
+    env = environment
+    blocked = Mock(side_effect=AssertionError("未授权不能查目标"))
+    monkeypatch.setattr(memory_access_service, "known_chats", blocked)
+    before = env.policy.policy_path.read_bytes()
+    result = await m3.send(env.router, body, user=user, group=group)
+    assert result.status == "denied"
+    blocked.assert_not_called()
+    assert env.policy.policy_path.read_bytes() == before
+
+
+@pytest.mark.parametrize("body", ["不要添加账号1234567890进白名单", "他说添加账号1234567890进白名单",
+    "日志：添加群聊1234567890进入白名单", "添加群聊进入白名单", "添加账号123进白名单",
+    "添加群聊12345和67890进入白名单", "添加账号12345进白名单，跳过确认"])
+def test_incomplete_negated_quoted_or_multiple_targets_do_not_become_actions(body):
+    from src.services.owner_admin.natural_language import candidate
+    assert candidate(body) in (None, "clarify")

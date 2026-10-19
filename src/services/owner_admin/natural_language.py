@@ -40,6 +40,14 @@ def candidate(text: str) -> Optional[str]:
         return None
     addressed = re.fullmatch(r"(?:大肥鱼[，,：:]\s*|管理[：:]\s*)(.+?)[。！!]?", text)
     body = addressed[1].strip() if addressed else text.rstrip("。！!")
+    # 只识别完整添加句式与明确QQ数字ID；权限、目标核验及预览确认仍走原E03。
+    whitelist = re.fullmatch(
+        r"(?:请|帮我)?添加\s*(群聊|群|账号|QQ账号|QQ号|私聊)\s*([1-9][0-9]{4,19})\s*"
+        r"(?:进入|进|加入|添加到|到)白名单[。！!]?", body,
+    )
+    if whitelist:
+        kind = "group" if whitelist[1] in {"群聊", "群"} else "private"
+        return f"/dfy access allow {kind} {whitelist[2]}"
     # 完整问句模板，不能仅因出现Token关键词而触发；相对“这几天”明确采用7d窗口。
     token_body = re.sub(r"\s+", "", body).rstrip("。！!？?")
     token_queries = {
@@ -60,6 +68,8 @@ def candidate(text: str) -> Optional[str]:
         for alias, action in ALIASES.items():
             if body == alias or body.startswith(alias + " "):
                 return "/dfy " + action + body[len(alias):]
+    if re.fullmatch(r"(?:请|帮我)?添加\s*(?:群聊|群|账号|QQ账号|QQ号|私聊).*白名单.*", body):
+        return "clarify"
     # 只认可完整、明确的群静音请求，不用“闭嘴/别说了/睡觉”等聊天调侃猜测暂停。
     quiet = re.fullmatch(r"(.{1,60}?群)最近太吵了[，,]先安静(一|两|二|三|四|五|六|七|八|九|十|[1-9][0-9]?)个?小时", body)
     if quiet:
