@@ -831,8 +831,12 @@ class ChatBot:
 
                 from src.services.owner_admin.system_runtime import management_delivery
 
-                with management_delivery(message.session_id):
-                    sent = await text_to_stream(admin_result.message, message.session_id, storage_message=False)
+                sent = None
+                try:
+                    with management_delivery(message.session_id):
+                        sent = await text_to_stream(admin_result.message, message.session_id, storage_message=False)
+                finally:
+                    await owner_admin_command_router.record_delivery(admin_result, sent)
                 if not sent:
                     logger.warning(
                         "主人管理命令已处理，但回执发送失败: status=%s audit_id=%s",

@@ -340,7 +340,8 @@ async def test_recall_platform_failure_is_not_reported_success(environment, sent
 async def test_all_m4_entry_points_require_real_owner_private_and_audit(environment, body, user, group):
     env = environment
     result = await send(env.router, body, user=user, group=group)
-    assert result.status == "denied" and result.audit_id
+    expected = "succeeded" if user == OWNER and group and body == "大肥鱼，看看今天用了多少 Token。" else "denied"
+    assert result.status == expected and result.audit_id
     assert not env.manager.active()
     env.supervisor.invoke_api.assert_not_awaited()
 

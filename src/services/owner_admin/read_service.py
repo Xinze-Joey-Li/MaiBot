@@ -69,6 +69,8 @@ class OwnerReadService:
 
     async def handle(self, request: AdminActionRequest) -> AdminActionResult:
         command = str(request.parameters["command"])
+        if command == "tokens" and request.actor_identity.chat_type == "group" and request.parameters.get("private_details"):
+            return AdminActionResult(False, "private_required", "费用金额、账单及账户详情仅限主人私聊查询，请私聊使用 /dfy tokens today。")
         if command not in READ_ACTIONS or request.action_id != f"owner_admin.read.{command}":
             raise ValueError("只读动作不匹配")
         # DB/文件/聚合全部在线程执行；线程内不调用路由，不触发热更新和配置写入。
@@ -194,6 +196,8 @@ class OwnerReadService:
         local_start, local_end = start.astimezone().replace(tzinfo=None), end.astimezone().replace(tzinfo=None)
         summary = _get_summary_statistics_sync(local_start, local_end)
         models = _get_model_statistics_sync(local_start, local_end, limit=400)
+        if request.actor_identity.chat_type == "group":
+            return self.public_view(summary, models), note + "；[start,end]；当前宿主整体记录，非本群估算；实时查询。"
         rate = "不可统计" if summary.cache_hit_rate is None else f"{summary.cache_hit_rate:.2%}"
         lines = [f"记录请求={summary.total_requests}；输入={summary.input_tokens}；输出={summary.output_tokens}",
                  f"Prompt Cache 命中={summary.cache_hit_tokens}；未命中={summary.cache_miss_tokens}；命中率={rate}",
@@ -202,6 +206,22 @@ class OwnerReadService:
         lines.extend(f"模型 {row.model_name}：请求={row.request_count}；输入={row.input_tokens}；"
                      f"输出={row.output_tokens}；缓存命中={row.cache_hit_tokens}；估算费用={row.total_cost:.6f}" for row in models)
         return lines, note + "；[start,end]；WebUI 同源 ModelUsage；模型上限400项；全局宿主统计。费用币种未记录。"
+
+    @staticmethod
+    def public_view(summary: Any, models: List[Any]) -> List[str]:
+        """A02公开字段投影；不传递私有对象给模型，也不发布自定义模型/供应商标签。"""
+        rate = "不可统计" if summary.cache_hit_rate is None else f"{summary.cache_hit_rate:.2%}"
+        lines = [
+            f"记录请求={summary.total_requests}；输入={summary.input_tokens}；输出={summary.output_tokens}；总Token={summary.total_tokens}",
+            f"缓存命中Token={summary.cache_hit_tokens}；未命中Token={summary.cache_miss_tokens}；命中率={rate}",
+            "口径：仅已记录ModelUsage调用；未落库失败不计。缓存按启用缓存的输入归一化，命中率=命中/(命中+未命中)。",
+            "缓存缺少未命中数时沿用WebUI按输入补全；无缓存样本时命中率不可统计。费用请私聊；分模型最多400项，以匿名编号展示。",
+        ]
+        if summary.total_requests == 0:
+            lines.append("区间无已记录调用；不代表没有未记录的失败请求。")
+        lines.extend(f"模型{index}（匿名）：请求={row.request_count}；输入={row.input_tokens}；输出={row.output_tokens}；总Token={row.total_tokens}"
+                     for index, row in enumerate(models, 1))
+        return lines
 
     def _stats(self, request: AdminActionRequest) -> Tuple[List[str], str]:
         from src.decision_replay.recorder import enabled, store

@@ -55,7 +55,7 @@ class OwnerAdminCommandRouter:
         self._resource_locks: Dict[tuple[str, str], asyncio.Lock] = {}
         if registry is None:
             self._register_builtin_actions()
-            from .read_commands import READ_ACTIONS
+            from .read_commands import PUBLIC_GROUP_READ_ACTIONS, READ_ACTIONS
             from .read_service import OwnerReadService
 
             read_service = OwnerReadService()
@@ -63,7 +63,8 @@ class OwnerAdminCommandRouter:
                 self.register_action(
                     AdminActionSpec(
                         f"owner_admin.read.{command}", permission_id, frozenset({"chat"}),
-                        owner_required=True, allowed_chat_types=frozenset({"private"}),
+                        owner_required=True, allowed_chat_types=(frozenset({"private", "group"})
+                            if f"owner_admin.read.{command}" in PUBLIC_GROUP_READ_ACTIONS else frozenset({"private"})),
                         audit_parameter_keys=("window", "page"),
                     ),
                     read_service.handle,
@@ -299,16 +300,24 @@ class OwnerAdminCommandRouter:
             identity = OwnerIdentityResolver.from_message(message)
             parsed = _ParsedCommand("owner_admin.natural.clarify", {})
             fresh = -5 <= time.time() - message.timestamp.timestamp() <= 120
+            if fresh and proposal.startswith("/dfy tokens"):
+                # 先归类动作供Guard统一拒绝；无效参数也必须进入审计，不能在路由外抛错。
+                parsed = self._parse(proposal)
             if not fresh:
                 parsed = _ParsedCommand("owner_admin.natural.clarify", {"reason": "stale_message"})
-            if fresh and identity.chat_type == "private" and OwnerIdentityResolver.is_owner(identity, global_config.bot.owner_qq):
+            if fresh and OwnerIdentityResolver.is_owner(identity, global_config.bot.owner_qq):
                 from src.services.bot_account_service import bot_account_service
 
                 if await asyncio.to_thread(bot_account_service.is_bot_self, identity.platform, identity.bot_account_id):
                     try:
+                        if identity.chat_type == "group" and not proposal.startswith("/dfy tokens"):
+                            # 群聊只新增A02；其他自然语言管理沿用原先私聊范围。
+                            proposal = "token-private" if proposal == "token-private" else "clarify"
                         if proposal.startswith("group-name:"):
                             proposal = await asyncio.to_thread(natural_language.resolve_group_name, identity.bot_account_id, proposal)
-                        if proposal != "clarify":
+                        if proposal == "token-private":
+                            parsed = _ParsedCommand("owner_admin.read.tokens", {"command": "tokens", "window": "today", "page": 1, "private_details": True})
+                        elif proposal != "clarify":
                             parsed = natural_language.validate_candidate({"command": proposal}, self._parse)
                     except ValueError:
                         parsed = _ParsedCommand("owner_admin.natural.clarify", {})
@@ -363,6 +372,9 @@ class OwnerAdminCommandRouter:
             parameters_for_audit.update(self._m3_service.confirmation_audit(identity, parsed.parameters["token"]))
         parameter_summary = self._parameter_summary(spec, parameters_for_audit)
         parameter_summary["entry_source"] = "natural_language" if natural else "deterministic"
+        if parsed.action_id == "owner_admin.read.tokens":
+            parameter_summary["output_view"] = "public_view" if identity.chat_type == "group" else "owner_private_view"
+            parameter_summary["private_details_requested"] = bool(parsed.parameters.get("private_details"))
         try:
             is_new, audit_id = await asyncio.to_thread(
                 self.audit_store.reserve,
@@ -435,6 +447,16 @@ class OwnerAdminCommandRouter:
         result = replace(result, audit_id=audit_id)
         await self._complete_safely(request.request_id, audit_id, result)
         return result
+
+    async def record_delivery(self, result: AdminActionResult, sent: Optional[bool]) -> None:
+        """仅A02回执补充真实发送确认；不把业务查询成功当平台发送成功。"""
+        if result.audit_id is None:
+            return
+        try:
+            await asyncio.to_thread(self.audit_store.record_delivery, result.audit_id,
+                                    "confirmed" if sent is True else "unconfirmed" if sent is False else "unknown")
+        except Exception:
+            logger.exception("主人管理回执发送审计写入失败: audit_id=%s", result.audit_id)
 
     async def _complete_safely(self, request_id: str, audit_id: str, result: AdminActionResult) -> None:
         try:
@@ -510,7 +532,7 @@ class OwnerAdminCommandRouter:
         return AdminActionResult(
             success=True,
             status="succeeded",
-            message="主人管理：/dfy help、/dfy whoami。主人私聊只读查询：status、tokens 1h/24h/7d/today、"
+            message="主人管理：/dfy help、/dfy whoami。主人群聊可查 tokens [1h/24h/7d/today] 公开用量（默认24h，费用请私聊）。主人私聊只读查询：status、tokens 1h/24h/7d/today、"
                     "stats [群ID] 24h、models、errors 24h、replay 消息ID、replay latest 群ID、"
                     "persona show、memory me [关键词]、learning status、chats、health。追加 --page N 翻页。\n"
                     "行为管理同样仅主人私聊：mute/unmute 群ID、frequency 群ID 数值 时长/reset、"

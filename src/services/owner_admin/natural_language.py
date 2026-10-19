@@ -39,6 +39,18 @@ def candidate(text: str) -> Optional[str]:
         return None
     addressed = re.fullmatch(r"(?:大肥鱼[，,：:]\s*|管理[：:]\s*)(.+?)[。！!]?", text)
     body = addressed[1].strip() if addressed else text.rstrip("。！!")
+    # 完整问句模板，不能仅因出现Token关键词而触发；相对“这几天”明确采用7d窗口。
+    token_body = re.sub(r"\s+", "", body).rstrip("。！!？?")
+    token_queries = {
+        "今天用了多少Token": "today", "看看今天用了多少Token": "today",
+        "看看最近一小时的Token消耗": "1h", "看看最近一小时用了多少Token": "1h",
+        "今天调用了多少次模型": "today", "最近24小时的缓存命中率是多少": "24h",
+        "这几天Token用量怎么样": "7d",
+    }
+    if token_body in token_queries and (addressed or token_body == "今天调用了多少次模型"):
+        return "/dfy tokens " + token_queries[token_body]
+    if addressed and token_body in {"今天API花了多少钱", "今天花了多少API费用", "今天的Token费用是多少"}:
+        return "token-private"
     common = {"看看运行状态": "status", "看看今天用了多少Token": "tokens today", "看看今天用了多少 Token": "tokens today",
               "看看最近一小时用了多少Token": "tokens 1h", "查看健康状态": "health"}
     if addressed and body in common:

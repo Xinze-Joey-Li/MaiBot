@@ -11,6 +11,8 @@ READ_ACTIONS = {
     "learning": ("D04", "学习状态"), "chats": ("E01", "聊天列表"),
     "health": ("F01", "服务健康"),
 }
+PUBLIC_GROUP_READ_ACTIONS = frozenset({"owner_admin.read.tokens"})
+
 WINDOWS = {"1h": 1, "24h": 24, "7d": 168, "today": 0}
 
 
@@ -32,6 +34,8 @@ def parse_read_command(args: List[str]) -> Optional[Tuple[str, Dict[str, Any]]]:
     if command in {"status", "models", "chats", "health"}:
         valid = not parts
     elif command in {"tokens", "errors"}:
+        if command == "tokens" and not parts:
+            parts = ["24h"]
         valid = len(parts) == 1 and parts[0] in WINDOWS
         if valid:
             parameters["window"] = parts[0]

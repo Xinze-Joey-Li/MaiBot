@@ -129,6 +129,19 @@ class OwnerAdminAuditStore:
             )
             connection.commit()
 
+    def record_delivery(self, audit_id: str, status: str) -> None:
+        """只记录A02回执确认级别，不保存公开或私有响应正文。"""
+        if status not in {"confirmed", "unconfirmed", "unknown"}:
+            raise ValueError("无效发送状态")
+        self._ensure_schema()
+        with closing(sqlite3.connect(self.path, timeout=5.0)) as connection, connection:
+            connection.execute("""INSERT INTO owner_admin_deliveries(audit_id,status,updated_at)
+                SELECT audit_id,?,? FROM owner_admin_audit
+                WHERE audit_id=? AND action_id='owner_admin.read.tokens'
+                ON CONFLICT(audit_id) DO UPDATE SET status=excluded.status,updated_at=excluded.updated_at""",
+                (status, datetime.now(timezone.utc).isoformat(), audit_id))
+            connection.commit()
+
     def _ensure_parent(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -173,6 +186,8 @@ class OwnerAdminAuditStore:
                 source_message_id TEXT NOT NULL
             )"""
         )
+        connection.execute("""CREATE TABLE IF NOT EXISTS owner_admin_deliveries (
+            audit_id TEXT PRIMARY KEY, status TEXT NOT NULL, updated_at TEXT NOT NULL)""")
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_owner_admin_audit_request ON owner_admin_audit(request_id)"
         )

@@ -99,7 +99,11 @@ async def test_all_eleven_commands_run_through_m0_and_are_audited(environment, b
 @pytest.mark.asyncio
 @pytest.mark.parametrize("body", COMMANDS)
 @pytest.mark.parametrize("user,group", [("stranger", False), ("100000001", True), ("stranger", True)])
-async def test_every_query_denies_non_owner_or_group_before_data_access(environment, monkeypatch, body, user, group):
+async def test_every_query_enforces_owner_and_chat_scope_before_data_access(environment, monkeypatch, body, user, group):
+    if body.startswith("/dfy tokens ") and user == "100000001" and group:
+        result = await environment[0].handle_message(incoming(body, user=user, group=group))
+        assert result.success and "估算费用=" not in result.message
+        return
     router, _, _ = environment
     query = Mock(side_effect=AssertionError("未经授权不得读取数据"))
     monkeypatch.setattr(OwnerReadService, "_query", query)
@@ -229,7 +233,9 @@ def test_permission_registry_contains_only_eleven_new_read_actions(environment):
     actions = [spec for spec in router.registry.list_actions() if spec.action_id.startswith("owner_admin.read.")]
     assert len(actions) == 11
     assert {spec.permission_id for spec in actions} == {value[0] for value in READ_ACTIONS.values()}
-    assert all(spec.owner_required and spec.allowed_chat_types == frozenset({"private"}) for spec in actions)
+    assert all(spec.owner_required and spec.allowed_chat_types ==
+               (frozenset({"private", "group"}) if spec.permission_id == "A02" else frozenset({"private"}))
+               for spec in actions)
 
 
 @pytest.mark.asyncio
