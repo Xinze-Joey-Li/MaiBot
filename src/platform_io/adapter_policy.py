@@ -1,7 +1,9 @@
 """统一适配器聊天名单策略。"""
 
 from dataclasses import dataclass, field
+from functools import wraps
 from pathlib import Path
+from threading import RLock
 from typing import Any, Dict, List, Mapping, Optional
 
 import tomlkit
@@ -58,6 +60,18 @@ class AdapterPolicyResult:
             "reason": self.reason,
             "matched_ids": list(self.matched_ids),
         }
+
+
+_POLICY_WRITE_LOCK = RLock()
+
+
+def serialized_policy_write(function):
+    """WebUI 与 QQ 管理共用同一读改写锁，防止文件原子替换前丢失其它规则。"""
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        with _POLICY_WRITE_LOCK:
+            return function(*args, **kwargs)
+    return wrapped
 
 
 class AdapterPolicyManager:
@@ -240,6 +254,7 @@ class AdapterPolicyManager:
             )
         return entries
 
+    @serialized_policy_write
     def set_adapter_policy(
         self,
         identity: AdapterIdentity,
@@ -330,6 +345,7 @@ class AdapterPolicyManager:
 
         return normalized_policies
 
+    @serialized_policy_write
     def set_default_action(self, chat_type: str, action: str) -> None:
         """设置某类聊天在没有命中具体规则时的全局默认动作。"""
 
@@ -347,6 +363,7 @@ class AdapterPolicyManager:
         chat_policy["default_action"] = normalized_action
         self._write_policy_doc(policy_doc)
 
+    @serialized_policy_write
     def set_chat_override(
         self,
         identity: AdapterIdentity,
@@ -354,6 +371,8 @@ class AdapterPolicyManager:
         chat_type: str,
         target_id: str,
         action: str,
+        exact_identity: bool = False,
+        verify: bool = False,
     ) -> None:
         """为某个适配器和聊天流写入显式放行/阻止覆盖规则。"""
 
@@ -367,7 +386,21 @@ class AdapterPolicyManager:
 
         policy_doc = self._load_policy_doc()
         adapters = self._ensure_adapter_tables(policy_doc)
-        adapter_policy = self._find_or_create_adapter_policy(adapters, identity)
+        if exact_identity:
+            match = self._identity_to_policy_match(identity)
+            if not identity.account_id or not identity.platform or not identity.adapter_id:
+                raise ValueError("精确策略必须包含适配器、平台和机器人账号")
+            adapter_policy = next((item for item in adapters
+                                   if self._identity_to_policy_match(AdapterIdentity(**{
+                                       key: item.get(key, "") for key in AdapterIdentity.__dataclass_fields__
+                                   })) == match), None)
+            if adapter_policy is None:
+                adapter_policy = tomlkit.table()
+                for key, value in match.items():
+                    adapter_policy[key] = value
+                adapters.append(adapter_policy)
+        else:
+            adapter_policy = self._find_or_create_adapter_policy(adapters, identity)
         chat_policy = self._ensure_chat_policy_table(adapter_policy, normalized_chat_type)
 
         allow_ids = self._normalize_id_list(chat_policy.get("allow_ids"))
@@ -387,9 +420,20 @@ class AdapterPolicyManager:
         self._prune_empty_ui_policy(adapter_policy, normalized_chat_type)
         self._prune_empty_adapter_policy(adapters, adapter_policy)
         self._sync_active_group(adapter_policy)
+        if verify and normalized_action == "allow" and any(
+            item.get("disabled", False) and self._adapter_policy_matches(item, identity) for item in adapters
+        ):
+            raise ValueError("适配器已禁用，群接入命令不能重新启用；请使用本地管理入口")
+        if verify and normalized_action != "inherit":
+            resolved = next((result for policy, source in self._iter_resolved_policies(policy_doc, identity, normalized_chat_type)
+                             if (result := self._evaluate_policy(policy, source=source, chat_type=normalized_chat_type,
+                                                                 target_id=normalized_target_id)) is not None), None)
+            if resolved is None or resolved.allowed != (normalized_action == "allow"):
+                raise ValueError("规则被更高优先级限制覆盖，未保存；请使用本地管理入口")
         self._policy_path.parent.mkdir(parents=True, exist_ok=True)
         self._write_policy_doc(policy_doc)
 
+    @serialized_policy_write
     def remove_chat_overrides(
         self,
         *,

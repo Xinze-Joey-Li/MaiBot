@@ -2,6 +2,8 @@
 
 from typing import TYPE_CHECKING
 
+from src.services.owner_admin.trigger_policy import pending_trigger_messages
+
 from src.common.logger import get_logger
 from src.decision_replay.recorder import probe
 from src.maisaka.focus import focus_mode_manager
@@ -35,7 +37,7 @@ class MessageTurnScheduler:
         if not enabled():
             return
         runtime = self._runtime
-        ids = [m.message_id for m in runtime.message_cache[runtime._last_processed_index:]]
+        ids = [m.message_id for m in pending_trigger_messages(runtime)]
         signature = (tuple(ids), decision, reason)
         if not ids or signature == self._replay_signature:
             return
@@ -102,7 +104,7 @@ class MessageTurnScheduler:
         if runtime._has_forced_turn_trigger():
             self._replay("pass", "forced_trigger", frequency=effective_frequency)
             # @ 强制触发的回复同样占用动态门控的回复额度
-            self._dynamic_reply_gate.record_forced_turn(runtime.message_cache[runtime._last_processed_index :])
+            self._dynamic_reply_gate.record_forced_turn(pending_trigger_messages(runtime))
             logger.info(
                 f"{runtime.log_prefix} 回复频率调度: 频率={formatted_frequency} "
                 f"pending={pending_count} 判定=强制触发"
@@ -116,7 +118,7 @@ class MessageTurnScheduler:
 
         if is_dynamic_reply_trigger_enabled():
             dynamic_result = self._dynamic_reply_gate.evaluate(
-                pending_messages=runtime.message_cache[runtime._last_processed_index :],
+                pending_messages=pending_trigger_messages(runtime),
                 frequency=effective_frequency,
                 allow_observation=runtime._agent_state == "stop",
             )

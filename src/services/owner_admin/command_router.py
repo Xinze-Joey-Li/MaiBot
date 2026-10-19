@@ -23,6 +23,7 @@ from .permissions import OwnerPermissionGuard
 
 if TYPE_CHECKING:
     from src.chat.message_receive.message import SessionMessage
+    from .memory_access_service import OwnerMemoryAccessService
 
 logger = logging.getLogger("owner_admin")
 _COMMAND_PATTERN = re.compile(r"^/(?:dfy|主人)(?:\s|$)")
@@ -49,6 +50,7 @@ class OwnerAdminCommandRouter:
         self.audit_store = audit_store or OwnerAdminAuditStore(OwnerAdminAuditStore.default_path())
         self.permission_guard = permission_guard or OwnerPermissionGuard()
         self._handlers: Dict[str, ActionHandler] = {}
+        self._m3_service: Optional["OwnerMemoryAccessService"] = None
         self._resource_locks: Dict[tuple[str, str], asyncio.Lock] = {}
         if registry is None:
             self._register_builtin_actions()
@@ -78,6 +80,18 @@ class OwnerAdminCommandRouter:
                     ),
                     control_service.handle,
                 )
+
+            from .memory_access_commands import M3_ACTIONS
+            from .memory_access_service import OwnerMemoryAccessService
+
+            m3_service = OwnerMemoryAccessService()
+            self._m3_service = m3_service
+            for command, permission_id in M3_ACTIONS.items():
+                self.register_action(AdminActionSpec(
+                    f"owner_admin.m3.{command}", permission_id, frozenset({"chat"}),
+                    owner_required=True, allowed_chat_types=frozenset({"private"}),
+                    audit_parameter_keys=("memory_id", "group_id", "user_id", "operation", "duration", "global", "cancel", "confirmed_action"),
+                ), m3_service.handle)
 
     def _register_builtin_actions(self) -> None:
         self.register_action(
@@ -268,7 +282,10 @@ class OwnerAdminCommandRouter:
             owner_user_id=global_config.bot.owner_qq,
             group_commands_enabled=global_config.bot.owner_group_commands_enabled,
         )
-        parameter_summary = self._parameter_summary(spec, parsed.parameters)
+        parameters_for_audit = dict(parsed.parameters)
+        if parsed.action_id == "owner_admin.m3.confirm" and decision.allowed and self._m3_service is not None:
+            parameters_for_audit.update(self._m3_service.confirmation_audit(identity, parsed.parameters["token"]))
+        parameter_summary = self._parameter_summary(spec, parameters_for_audit)
         try:
             is_new, audit_id = await asyncio.to_thread(
                 self.audit_store.reserve,
@@ -415,7 +432,10 @@ class OwnerAdminCommandRouter:
                     "行为管理同样仅主人私聊：mute/unmute 群ID、frequency 群ID 数值 时长/reset、"
                     "threshold 群ID ±百分比 时长/reset、mode 群ID quiet/active/mention_only 时长或normal、"
                     "style gentle/calm 时长或reset、persona gentle/playful/calm 时长或default、"
-                    "chat config 群ID、chat set 群ID frequency/threshold/mode 值、overrides [群ID]。mute需时长，时长1m至7d。",
+                    "chat config 群ID、chat set 群ID frequency/threshold/mode 值、overrides [群ID]。mute需时长，时长1m至7d。\n"
+                    "M3：memory add 本人事实、memory edit/delete 记忆ID；access list/allow/deny/reset 群ID；"
+                    "ignore 用户ID 时长 --group 群ID（或 --global）、unignore 用户ID 同范围、ignore list；"
+                    "更正/撤回及接入修改先预览，再confirm 令牌。",
         )
 
     async def _whoami(self, request: AdminActionRequest) -> AdminActionResult:
@@ -534,6 +554,11 @@ class OwnerAdminCommandRouter:
     def _parse(body: str) -> "_ParsedCommand":
         if body.startswith("/dfy"):
             args = body.split()
+            from .memory_access_commands import parse_m3_command
+
+            m3_command = parse_m3_command(args.copy())
+            if m3_command is not None:
+                return _ParsedCommand(*m3_command)
             from .read_commands import parse_read_command
 
             read_command = parse_read_command(args)

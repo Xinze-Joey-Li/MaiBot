@@ -157,7 +157,7 @@ class TagMemoryService:
                 platform=session.platform, user_id=user) == pid}
             # 在数据库中过滤人物并限制条数，避免高频群每次画像查询加载整群证据。
             selected = store.list_current_tags(scope, person_users=list(matched), limit=max(1, min(limit, 20)))
-            text = "\n".join(f"- {item['name']}：{item['summary']}" for item in selected)
+            text = "\n".join(f"- {item['name']}" + (" [owner_explicit]" if item["source"] == "owner_explicit" else "") + f"：{item['summary']}" for item in selected)
             return {"success": True, "person_id": pid, "profile_text": text, "summary": text,
                     "profile_source": "session_tags", "chat_id": scope, "has_manual_override": False,
                     "uncertain_candidates": [], "evidence": [source for item in selected for source in item["evidence"]]}

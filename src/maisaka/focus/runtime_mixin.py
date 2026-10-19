@@ -10,6 +10,8 @@ from typing import Any, Literal, Optional, Sequence
 import asyncio
 import time
 
+from src.services.owner_admin.trigger_policy import pending_trigger_messages
+
 from src.chat.message_receive.chat_manager import BotChatSession, chat_manager
 from src.chat.message_receive.message import SessionMessage
 from src.common.data_models.mai_message_data_model import MessageInfo
@@ -49,7 +51,7 @@ class MaisakaFocusRuntimeMixin:
     def _get_pending_attention_flags(self) -> tuple[bool, bool]:
         """Return whether pending messages contain @ or mention signals."""
 
-        pending_messages = self.message_cache[self._last_processed_index :]
+        pending_messages = pending_trigger_messages(self)
         has_pending_at = any(message.is_at for message in pending_messages)
         has_pending_mention = any(message.is_mentioned for message in pending_messages)
         return has_pending_at, has_pending_mention
@@ -485,7 +487,7 @@ class MaisakaFocusRuntimeMixin:
 
     @staticmethod
     def _get_focus_oldest_pending_message_at(chat_runtime: Any) -> Optional[datetime]:
-        pending_messages = chat_runtime.message_cache[chat_runtime._last_processed_index :]
+        pending_messages = pending_trigger_messages(chat_runtime)
         oldest_timestamp: Optional[datetime] = None
         seen_message_ids: set[str] = set()
         for message in pending_messages:
@@ -552,7 +554,7 @@ class MaisakaFocusRuntimeMixin:
         """Return pending new messages shown automatically after switch_chat."""
 
         safe_limit = max(1, int(limit))
-        pending_messages = self.message_cache[self._last_processed_index :]
+        pending_messages = pending_trigger_messages(self)
         if not pending_messages:
             return []
 

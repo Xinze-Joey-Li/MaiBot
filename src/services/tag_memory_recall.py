@@ -69,7 +69,7 @@ async def _build_tag_memory_reference(session_id: str, text: str, user_ids: Opti
         return ""
     # 不把整棵树和相邻批次全文塞入提示词，最多召回八个有证据的标签。
     data = [{"id": item["id"], "category_path": item["category_path"], "name": item["name"],
-             "summary": item["summary"], "is_active": bool(item["is_active"] or item["auto_active"]),
+             "summary": item["summary"], "source": item["source"], "is_active": bool(item["is_active"] or item["auto_active"]),
              "created_at": item["created_at"], "evidence": [
                  {"message_id": source["message_id"], "quote": source["quote"][:240]}
                  for source in item["evidence"][:3]]} for item in hits]

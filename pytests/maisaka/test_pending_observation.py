@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.maisaka.turn_trigger.pending_observation import PendingObservation
+from src.maisaka.turn_trigger.reply_likelihood import ReplyLikelihoodScore
 from src.maisaka.turn_trigger import gates
 
 
@@ -49,13 +50,13 @@ def test_late_timer_cannot_revive_topic():
 
 def test_dynamic_gate_delays_then_allows_once_without_inflating_demand(monkeypatch):
     monkeypatch.setattr(gates, "is_bot_self", lambda *args: False)
-    monkeypatch.setattr(gates, "score_reply_likelihood", lambda *args: SimpleNamespace(probability=0.32, detail="test"))
+    monkeypatch.setattr(gates, "score_reply_likelihood", lambda *args: ReplyLikelihoodScore(probability=0.32, logit=-0.7537718, contributions={}))
     monkeypatch.setattr(gates, "estimate_reply_probability", lambda *args: 0.32)
     monkeypatch.setattr(gates.time, "time", lambda: 1800000000)
     message = SimpleNamespace(message_id="m1", platform="qq", timestamp=datetime.fromtimestamp(1800000000),
                               processed_plain_text="你好", is_at=False, is_mentioned=False,
                               message_info=SimpleNamespace(user_info=SimpleNamespace(user_id="user")))
-    gate = gates.DynamicReplyTurnGate(SimpleNamespace(chat_stream=SimpleNamespace(is_group_session=True), _chat_history=[]))
+    gate = gates.DynamicReplyTurnGate(SimpleNamespace(session_id="test-session", chat_stream=SimpleNamespace(is_group_session=True), _chat_history=[]))
     first = gate.evaluate(pending_messages=[message], frequency=0.5, allow_observation=True)
     assert first.decision == "delay"
     assert first.delay_seconds == 10

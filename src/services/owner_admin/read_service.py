@@ -335,8 +335,8 @@ class OwnerReadService:
                                            limit=20, read_only=True)
             for item in tags:
                 if not keyword or keyword.casefold() in (item["name"] + item["summary"]).casefold():
-                    lines.append(f"{chat.group_name or chat.user_nickname or chat.session_id}：{item['name']}：{item['summary']}")
-        return lines, "仅本账号最近50个真实聊天流、每流最近20个本人有效标签；关键词只在此范围过滤。全局画像/其他记忆不在本接口范围。"
+                    lines.append(f"{chat.group_name or chat.user_nickname or chat.session_id}：ID={item['id']} source={item['source']} created={format_time(item['created_at'])}：{item['summary']}")
+        return lines, "仅本账号最近50个真实聊天流、每流最近20个本人有效标签；关键词只在此范围过滤。未知来源标签不会被归类为自主学习、推断或已确认；owner_explicit仅在所属会话检索。全局画像/其他记忆不在本接口范围。"
 
     def _learning(self, request: AdminActionRequest) -> Tuple[List[str], str]:
         from src.config.config import global_config

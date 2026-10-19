@@ -53,6 +53,10 @@ class AutoRepeatService:
         self.detector = AutoRepeatDetector()
 
     async def on_incoming_message(self, message: "SessionMessage") -> None:
+        from src.services.owner_admin.trigger_policy import is_ignored
+
+        if is_ignored(message):
+            return
         from src.common.data_models.message_component_data_model import TextComponent
         from src.config.config import global_config
         from src.services.bot_account_service import is_bot_self

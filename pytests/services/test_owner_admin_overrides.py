@@ -220,7 +220,7 @@ async def test_real_at_reply_exemption_survives_normal_mute(manager):
 async def test_historical_at_cannot_be_selected_by_model_to_bypass_mute(manager, monkeypatch):
     await set_value(manager, "muted", True)
     runtime = SimpleNamespace(session_id="group-a", message_cache=[SimpleNamespace(message_id="fresh", is_at=True)],
-                              _last_processed_index=0)
+                              _last_processed_index=0, find_source_message_by_id=lambda message_id: None)
     override_runtime.begin_turn(runtime)
     called = Mock()
 

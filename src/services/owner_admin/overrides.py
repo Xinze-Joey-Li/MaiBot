@@ -214,6 +214,12 @@ class OverrideManager:
     @staticmethod
     def _validate(property: str, scope: str, value: Any, priority: int, duration: Optional[int], cancel: bool) -> None:
         allowed = {"chat": {"muted", "frequency", "threshold", "mode"}, "bot": {"style", "persona"}}
+        if property.startswith("ignore:") and scope in {"chat", "bot"} and priority == 100:
+            import re
+
+            if not re.fullmatch(r"ignore:[1-9][0-9]{4,19}", property) or (not cancel and value is not True):
+                raise ValueError("用户屏蔽参数无效")
+            allowed[scope] = {*allowed[scope], property}
         if property not in allowed.get(scope, set()) or priority not in {10, 100}:
             raise ValueError("覆盖属性或层级不受支持")
         if priority == 10 and (scope != "chat" or property not in {"frequency", "threshold", "mode"}):

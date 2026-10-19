@@ -386,9 +386,19 @@ class TagMemoryStore:
         conflict_decisions: Optional[List[Dict[str, Any]]] = None,
         conflict_versions: Optional[Dict[str, int]] = None,
         conflict_categories: Optional[List[List[str]]] = None,
+        owner_explicit_by: Optional[Tuple[str, str]] = None,
     ) -> Dict[str, Any]:
         if not session_id.strip() or not session_name.strip() or not external_id.strip() or not summary.strip():
             raise ValueError("会话、批次标识和批次摘要不能为空")
+        if owner_explicit_by is not None:
+            account, user = owner_explicit_by
+            if (not account or not user or extraction_job_id is not None
+                    or not external_id.startswith(f"owner_explicit:{account}:{user}:")
+                    or not external_id.rsplit(":", 1)[-1]
+                    or any(tag.category_path != ("人物", user, "owner_explicit") for tag in tags)):
+                raise ValueError("主人显式记忆来源或归属无效")
+        elif external_id.startswith("owner_explicit:") or any("owner_explicit" in tag.category_path for tag in tags):
+            raise ValueError("学习任务不能声明主人显式来源")
         sources = list(dict.fromkeys(message_ids))
         if not sources or any(not value.strip() for value in sources):
             raise ValueError("批次必须包含有效来源消息 ID")
@@ -424,7 +434,10 @@ class TagMemoryStore:
             if existing:
                 if existing["fingerprint"] != fingerprint:
                     raise ValueError("同一批次 ID 的输入发生变化，拒绝覆盖")
-                return {"batch_id": existing["id"], "created": False}
+                return {"batch_id": existing["id"], "created": False,
+                        **({"owner_tags": [dict(row) for row in connection.execute(
+                            "SELECT id,created_at,status FROM tags WHERE batch_id=?", (existing["id"],))]}
+                           if owner_explicit_by is not None else {})}
             self._check_conflict_versions(connection, session_id, conflict_versions or {}, conflict_categories)
             previous_extraction = None
             allow_topic_update = True
@@ -585,7 +598,9 @@ class TagMemoryStore:
                                        "superseded_tags": sum(status == "superseded" for status in statuses.values()),
                                        "disputed_tags": sum(status == "disputed" for status in statuses.values()),
                                    }, ensure_ascii=False)))
-            return {"batch_id": batch_id, "created": True}
+            return {"batch_id": batch_id, "created": True,
+                    **({"owner_tags": [{"id": tag_id, "created_at": timestamp, "status": "valid"}
+                                       for tag_id, _ in inserted_tags]} if owner_explicit_by is not None else {})}
 
     @staticmethod
     def _update_topics(
@@ -948,7 +963,8 @@ class TagMemoryStore:
             if not read_only:
                 self._expire_manual_activity(connection, time.time(), session_id)
             result = []
-            query = ("SELECT t.*,c.path FROM tags t JOIN categories c ON c.id=t.category_id "
+            query = ("SELECT t.*,c.path,b.external_id FROM tags t JOIN categories c ON c.id=t.category_id "
+                     "JOIN batches b ON b.id=t.batch_id "
                      "WHERE t.session_id=? AND t.status NOT IN ('superseded','deleted')")
             parameters: List[Any] = [session_id]
             if person_users is not None:
@@ -962,6 +978,7 @@ class TagMemoryStore:
             for row in connection.execute(query, parameters):
                 item = dict(row)
                 item["category_path"] = json.loads(item.pop("path"))
+                item["source"] = "owner_explicit" if item["external_id"].startswith("owner_explicit:") else "unclassified"
                 item["evidence"] = [dict(source) for source in connection.execute(
                     "SELECT message_id,quote FROM tag_sources WHERE tag_id=?", (item["id"],)
                 )]
@@ -1011,7 +1028,8 @@ class TagMemoryStore:
     def tag_detail(self, session_id: str, tag_id: str) -> Dict[str, Any]:
         with self._connect() as connection:
             self._expire_manual_activity(connection, time.time(), session_id)
-            row = connection.execute("SELECT * FROM tags WHERE session_id=? AND id=? AND status!='deleted'",
+            row = connection.execute("SELECT t.*,c.path,b.external_id FROM tags t JOIN categories c ON c.id=t.category_id "
+                                     "JOIN batches b ON b.id=t.batch_id WHERE t.session_id=? AND t.id=? AND t.status!='deleted'",
                                      (session_id, tag_id)).fetchone()
             if row is None:
                 raise ValueError("当前群不存在该标签")
@@ -1019,6 +1037,20 @@ class TagMemoryStore:
                 "SELECT message_id,quote FROM tag_sources WHERE tag_id=?", (tag_id,))],
                 "revisions": [dict(item) for item in connection.execute(
                     "SELECT * FROM tag_revisions WHERE tag_id=? ORDER BY created_at DESC", (tag_id,))]}
+
+    def owner_declaration(self, session_ids: List[str], account_id: str, user_id: str, tag_id: str) -> Dict[str, Any]:
+        """仅定位当前账号真实会话下、来源受保护且人物路径完全匹配的显式记忆。"""
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT t.session_id,c.path,b.external_id FROM tags t JOIN categories c ON c.id=t.category_id "
+                "JOIN batches b ON b.id=t.batch_id WHERE t.id=? AND t.status='valid' "
+                "AND t.session_id IN (SELECT value FROM json_each(?))", (tag_id, json.dumps(session_ids)),
+            ).fetchone()
+            if (row is None or json.loads(row["path"]) != ["人物", user_id, "owner_explicit"]
+                    or not row["external_id"].startswith(f"owner_explicit:{account_id}:{user_id}:")):
+                raise ValueError("该记忆不属于当前账号下经过验证的主人显式声明；未操作")
+            scope = row["session_id"]
+        return self.tag_detail(scope, tag_id)
 
     def edit_tag(self, session_id: str, tag_id: str, *, revision: int, reason: str,
                  name: str, summary: str, is_active: bool, requires_long_term: bool) -> None:

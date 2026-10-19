@@ -9,6 +9,8 @@ import json
 import time
 import uuid
 
+from src.services.owner_admin.trigger_policy import pending_trigger_messages
+
 from src.chat.heart_flow.heartFC_utils import CycleDetail
 from src.chat.message_receive.chat_manager import BotChatSession, chat_manager
 from src.chat.message_receive.message import SessionMessage
@@ -927,6 +929,15 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
 
     async def register_message(self, message: SessionMessage) -> None:
         """缓存一条新消息并唤醒主循环。"""
+        from src.services.owner_admin.trigger_policy import is_ignored
+
+        if is_ignored(message):
+            # 上游已正常持久化；保留多人上下文，但不更新频率、@、冷却或打断信号。
+            history_message = await self._reasoning_engine._build_history_message(message, source_kind="user")
+            if history_message is not None:
+                self._chat_history.append(history_message)
+            self._emit_monitor_message_ingested(message)
+            return
         if message.message_info.additional_config.get("priority_at_requested") is True:
             from src.services.priority_at_reply_service import priority_at_reply_service
 
@@ -1085,7 +1096,7 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
         from src.services.owner_admin.override_runtime import turn_has_direct_trigger
 
         snapshot = override_manager.snapshot(self.session_id)
-        pending_direct = any(message.is_at for message in self.message_cache[self._last_processed_index:])
+        pending_direct = any(message.is_at for message in pending_trigger_messages(self))
         return not snapshot.autonomous_allowed and not (pending_direct or turn_has_direct_trigger(self.session_id))
 
     async def track_reply_effect(
@@ -1190,7 +1201,7 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
 
     def _get_pending_message_count(self) -> int:
         """统计当前尚未进入内部循环的新消息数量。"""
-        pending_messages = self.message_cache[self._last_processed_index :]
+        pending_messages = pending_trigger_messages(self)
         return len(pending_messages)
 
     def _prune_recent_external_message_intervals(self, now: Optional[float] = None) -> None:
@@ -1417,6 +1428,13 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
     def _has_forced_turn_trigger(self) -> bool:
         """判断是否已有 @/提及必回触发，需绕过普通频率阈值。"""
 
+        from src.services.owner_admin.trigger_policy import is_ignored
+
+        if self._forced_turn_enabled:
+            source = next((message for message in self.message_cache
+                           if message.message_id == self._forced_turn_message_id), None)
+            if source is not None and is_ignored(source):
+                return False
         return self._forced_turn_enabled
 
     def _start_planner_continuation(self) -> None:
@@ -1803,7 +1821,7 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
         self._message_turn_scheduler.record_reply()
 
     def _has_pending_messages(self) -> bool:
-        return self._last_processed_index < len(self.message_cache)
+        return bool(pending_trigger_messages(self))
 
     def _schedule_message_turn(self) -> None:
         """为当前待处理消息安排一次内部 turn。"""
@@ -1811,8 +1829,7 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
 
     def _collect_pending_messages(self) -> list[SessionMessage]:
         """从消息缓存中收集一批尚未处理的消息。"""
-        start_index = self._last_processed_index
-        pending_messages = self.message_cache[start_index:]
+        pending_messages = pending_trigger_messages(self)
         if not pending_messages:
             return []
 
@@ -1820,7 +1837,7 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
         if pending_messages:
             focus_mode_manager.mark_read(self.session_id)
         # logger.info(
-        # f"{self.log_prefix} 已从消息缓存区[{start_index}:{self._last_processed_index}] "
+        # f"{self.log_prefix} 已从消息缓存区截至[{self._last_processed_index}] "
         # f"收集 {len(pending_messages)} 条新消息"
         # )
         return pending_messages

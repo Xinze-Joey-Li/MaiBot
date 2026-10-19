@@ -44,7 +44,9 @@ class PriorityAtReplyService:
         from src.config.config import global_config
         from src.services.bot_account_service import is_bot_self
 
-        if not global_config.chat.priority_at_reply_enabled or message.is_notify or message.is_command:
+        from src.services.owner_admin.trigger_policy import is_ignored
+
+        if is_ignored(message) or not global_config.chat.priority_at_reply_enabled or message.is_notify or message.is_command:
             return False
         if is_bot_self(message.platform, message.message_info.user_info.user_id):
             return False
