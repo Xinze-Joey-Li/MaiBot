@@ -3,6 +3,8 @@
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional, Sequence, Set, TYPE_CHECKING
+import hashlib
+import json
 import time
 
 from src.chat.message_receive.message import SessionMessage
@@ -14,6 +16,7 @@ from .dynamic_gate import MIN_WINDOW_SCORE_COUNT, DynamicReplyGate
 from .pending_observation import PendingObservation
 from .reply_likelihood import (
     DEFAULT_SECONDS_SINCE_BOT_MESSAGE,
+    DEFAULT_REPLY_WEIGHTS,
     ReplyLikelihoodInput,
     estimate_reply_probability,
     score_reply_likelihood,
@@ -28,6 +31,8 @@ TurnGateDecision = Literal["trigger", "wait", "delay"]
 RECENT_PRESENCE_WINDOW_SECONDS = 300.0
 """统计近期消息量与麦麦发言占比的时间窗口。"""
 
+REPLY_WEIGHTS_HASH = hashlib.sha256(json.dumps(asdict(DEFAULT_REPLY_WEIGHTS), sort_keys=True).encode()).hexdigest()
+
 
 @dataclass(frozen=True)
 class TurnGateResult:
@@ -37,6 +42,7 @@ class TurnGateResult:
     detail: str
     delay_seconds: Optional[float] = None
     replay_detail: Optional[Dict[str, Any]] = None
+    evaluated_at: Optional[float] = None
 
     @property
     def should_trigger(self) -> bool:
@@ -113,7 +119,8 @@ class DynamicReplyTurnGate:
             last_reply_at=last_reply_at, gap=gate_decision.threshold - score.probability,
             eligible=allow_observation and not gate_decision.should_trigger,
         )
-        replay_detail = {'features': asdict(likelihood_input), 'contributions': score.contributions,
+        replay_detail = {'features': asdict(likelihood_input), 'weights_hash': REPLY_WEIGHTS_HASH,
+                         'contributions': score.contributions,
                          'logit': score.logit, 'probability': score.probability,
                          'threshold': gate_decision.threshold,
                          'threshold_source': 'static_table' if len(self._gate._proactive_scores) < MIN_WINDOW_SCORE_COUNT else 'window_quantile',
@@ -122,9 +129,9 @@ class DynamicReplyTurnGate:
                          'observation_delay_seconds': delay, 'contribution_unit': 'logit', 'interest_weights': 'not_integrated'}
         if observed:
             self._gate.close_round()
-            return TurnGateResult(decision="trigger", replay_detail=replay_detail, detail=f"动态门控: {gate_decision.detail} 判定=待观察机会进入Planner")
+            return TurnGateResult(decision="trigger", replay_detail=replay_detail, evaluated_at=now, detail=f"动态门控: {gate_decision.detail} 判定=待观察机会进入Planner")
         if delay is not None:
-            return TurnGateResult(decision="delay", delay_seconds=delay, replay_detail=replay_detail,
+            return TurnGateResult(decision="delay", delay_seconds=delay, replay_detail=replay_detail, evaluated_at=now,
                                   detail=f"动态门控: {gate_decision.detail} 判定=待观察一次 延迟={delay:.0f}s")
         if gate_decision.should_trigger:
             self._gate.close_round()
@@ -132,6 +139,7 @@ class DynamicReplyTurnGate:
         return TurnGateResult(
             decision="trigger" if gate_decision.should_trigger else "wait",
             replay_detail=replay_detail,
+            evaluated_at=now,
             detail=f"动态门控: {gate_decision.detail} 权重贡献: [{score.detail}] 判定={decision_label}",
         )
 

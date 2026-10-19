@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING
 
+import time
 import traceback
 
 from src.chat.heart_flow.heartflow_manager import heartflow_manager
@@ -34,6 +35,7 @@ class HeartFCMessageReceiver:
         Args:
             message: SessionMessage对象，包含原始消息数据和相关信息
         """
+        observation_received_at = time.time()
         try:
             # 1. 消息解析与初始化
             userinfo = message.message_info.user_info
@@ -59,6 +61,10 @@ class HeartFCMessageReceiver:
 
             from src.services.priority_at_reply_service import priority_at_reply_service
 
+            from src.decision_observation.recorder import incoming_runtime
+
+            if chat is not None:
+                incoming_runtime(chat, message, observation_received_at)
             priority_at_reply = priority_at_reply_service.claim(message)
             await MessageUtils.store_message_to_db_async(message)  # 存储消息到数据库
             from src.services.group_silence_emoji_service import group_silence_emoji_service

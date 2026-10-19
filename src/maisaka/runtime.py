@@ -147,6 +147,9 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
 
     def __init__(self, session_id: str):
         self.session_id = session_id
+        from src.decision_observation.models import PendingWorkset
+
+        self._observation_workset = PendingWorkset()
         chat_stream = chat_manager.get_session_by_session_id(session_id)
         if chat_stream is None:
             raise ValueError(f"未找到会话 {session_id} 对应的 Maisaka 运行时")
@@ -540,6 +543,9 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
 
     async def stop(self) -> None:
         """停止运行时主循环。"""
+        from src.decision_observation.recorder import finalize
+
+        finalize(self, "interrupted")
         if not self._running:
             return
 
@@ -971,11 +977,17 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
         self._record_external_message_interval(message, received_at)
         self._update_message_trigger_state(message)
         self.message_cache.append(message)
+        from src.decision_observation.recorder import registered
+
+        registered(self)
         self._emit_monitor_message_ingested(message)
         self._prune_processed_message_cache()
         if self._is_reply_effect_tracking_enabled():
             asyncio.create_task(self._reply_effect_tracker.observe_user_message(message))
         if not self._should_continue_after_focus_gate(message):
+            from src.decision_observation.recorder import rejected
+
+            rejected(self, "focus_unavailable")
             from src.decision_replay.recorder import new_trace, record
             trace = new_trace(self.session_id)
             record('gate', 'gate.decided', 'reject', 'focus_unavailable', trace=trace,
@@ -1836,6 +1848,10 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
             return []
 
         self._last_processed_index = len(self.message_cache)
+        from src.decision_observation.recorder import finalize
+
+        # 这里只确认 pending 已消费，不能据此推断 Planner、Replyer 或平台发送。
+        finalize(self, "consumed")
         if pending_messages:
             focus_mode_manager.mark_read(self.session_id)
         # logger.info(

@@ -63,6 +63,9 @@ async def _cancel_remaining_tasks(system: "MainSystem") -> None:
 async def _finish_io() -> None:
     # 取消 to_thread 的包装任务不会停止线程。必须等 executor 完全退出，
     # 再关闭 daemon 回放 writer，避免线程最后产生的事件落在 flush 之后。
+    from src.decision_observation.recorder import shutdown as shutdown_decision_observation
+
+    await shutdown_decision_observation()
     loop = asyncio.get_running_loop()
     await loop.shutdown_default_executor()
     store = _component("src.decision_replay.recorder", "store")

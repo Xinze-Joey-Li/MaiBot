@@ -1,0 +1,13 @@
+{
+  "historical_replyer_requests": 86,
+  "priority_at": 72,
+  "planner_group": 13,
+  "planner_private": 1,
+  "legacy_send_completed_observations": {
+    "failed": 1,
+    "sent": 116
+  },
+  "new_logical_reply_count": null,
+  "new_exact_platform_success_count": null,
+  "reason": "Legacy events lack complete logical reply plans and reliable confirmation identities. Do not reconstruct precise new counts or sum gateway and host observations."
+}

@@ -1,0 +1,19 @@
+{
+  "timestamp": "2026-10-16T03:34:59.027897",
+  "archive": "C:\\Users\\E'l'y'si'a\\Downloads\\DeepSeek%E9%B2%B8%E9%B1%BC%E5%A8%98_148%E8%A1%A8%E6%83%85_%E5%A4%9A%E7%BB%B4Tag%E5%85%83%E6%95%B0%E6%8D%AE_v2.zip",
+  "archive_sha256": "0eca2b001c9b243fd80190ab0e2456315f87f5011758d9321df1325b7480d084",
+  "count": 148,
+  "matched_registered_and_verified_images": 148,
+  "backup": "G:\\QQbot\\MaiBot-emoji-metadata-backup-20261016-033458",
+  "updated_files": [
+    "G:\\QQbot\\MaiBot\\data\\emoji_selection_metadata.json",
+    "G:\\QQbot\\MaiBot\\data\\emoji_rich_metadata.json",
+    "G:\\QQbot\\MaiBot\\data\\emoji_tag_aliases.json",
+    "G:\\QQbot\\MaiBot\\data\\emoji_annotation_catalog.csv"
+  ],
+  "quality_range": [
+    0.4,
+    0.98
+  ],
+  "validation": "All 148 runtime-loaded entries match v2 scoring values and pass score_candidate. Image SHA256 verified. Database and image files unchanged. Additional dimensions stored; current scorer consumes keywords/useWhen/quality only."
+}

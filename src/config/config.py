@@ -31,6 +31,7 @@ from .official_configs import (
     ChineseTypoConfig,
     DatabaseConfig,
     DebugConfig,
+    DecisionObservationConfig,
     EmojiConfig,
     ExperimentalConfig,
     ExpressionConfig,
@@ -67,7 +68,7 @@ MODEL_CONFIG_PATH: Path = (CONFIG_DIR / "model_config.toml").resolve().absolute(
 LEGACY_ENV_PATH: Path = (PROJECT_ROOT / ".env").resolve().absolute()
 A_MEMORIX_LEGACY_CONFIG_PATH: Path = (CONFIG_DIR / "a_memorix.toml").resolve().absolute()
 MMC_VERSION: str = read_project_version(PROJECT_ROOT)
-CONFIG_VERSION: str = "8.14.80"
+CONFIG_VERSION: str = "8.14.81"
 MODEL_CONFIG_VERSION: str = "1.17.16"
 
 logger = get_logger("config")
@@ -146,6 +147,9 @@ class Config(ConfigBase):
 
     debug: DebugConfig = Field(default_factory=DebugConfig)
     """调试配置类"""
+
+    decision_observation: DecisionObservationConfig = Field(default_factory=DecisionObservationConfig)
+    """默认关闭的群聊决策观察配置"""
 
     maim_message: MaimMessageConfig = Field(default_factory=MaimMessageConfig)
     """maim_message配置类"""
