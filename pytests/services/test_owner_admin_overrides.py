@@ -10,6 +10,9 @@ import time
 import pytest
 import pytest_asyncio
 
+# 提前导入真实被测模块，避免其它用例的临时配置替身被首次模块导入缓存。
+from src.chat.replyer.maisaka_generator_base import BaseMaisakaReplyGenerator
+from src.maisaka.chat_loop_service import MaisakaChatLoopService
 from src.services.owner_admin import override_runtime, overrides
 from src.services.owner_admin.overrides import OverrideManager
 from src.common.data_models.message_component_data_model import MessageSequence, TextComponent
@@ -238,9 +241,7 @@ async def test_historical_at_cannot_be_selected_by_model_to_bypass_mute(manager,
 @pytest.mark.asyncio
 async def test_planner_replyer_share_presets_and_preserve_core_identity(manager, monkeypatch):
     from src.chat.message_receive.chat_manager import chat_manager
-    from src.chat.replyer.maisaka_generator_base import BaseMaisakaReplyGenerator
     from src.config.config import global_config
-    from src.maisaka.chat_loop_service import MaisakaChatLoopService
 
     monkeypatch.setitem(chat_manager.sessions, "group-a", SimpleNamespace(platform="qq", account_id="bot"))
     monkeypatch.setattr(global_config.personality, "personality", "DeepSeek鲸鱼娘；保留主人关系和记忆。")

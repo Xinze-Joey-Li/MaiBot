@@ -1,9 +1,9 @@
 """统一覆盖存储与无 I/O 有效快照；基础配置始终按当前值读取，不保存恢复副本。"""
 
-from contextlib import closing
+from contextlib import asynccontextmanager, closing
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Tuple
 import asyncio
 import json
 import logging
@@ -54,6 +54,51 @@ class EffectiveOverrides:
         return min(1.0, max(0.0, inherited * factor))
 
 
+class AccountDispatchBarrier:
+    """正常投递并发读，软暂停变更独占写；写者等待旧投递结束后才确认。"""
+
+    def __init__(self) -> None:
+        self.condition = asyncio.Condition()
+        self.readers: Dict[asyncio.Task, int] = {}
+        self.writer = False
+        self.waiting_writers = 0
+
+    @asynccontextmanager
+    async def delivery(self) -> AsyncIterator[None]:
+        task = asyncio.current_task()
+        async with self.condition:
+            # 同一任务的嵌套投递必须可重入，否则与正在等待的暂停形成自锁。
+            await self.condition.wait_for(lambda: task in self.readers or (not self.writer and not self.waiting_writers))
+            self.readers[task] = self.readers.get(task, 0) + 1
+        try:
+            yield
+        finally:
+            async with self.condition:
+                self.readers[task] -= 1
+                if not self.readers[task]:
+                    del self.readers[task]
+                self.condition.notify_all()
+
+    @asynccontextmanager
+    async def transition(self) -> AsyncIterator[None]:
+        async with self.condition:
+            if asyncio.current_task() in self.readers:
+                raise RuntimeError("不能在同一投递回调内切换暂停；需独立管理请求")
+            self.waiting_writers += 1
+            try:
+                await self.condition.wait_for(lambda: not self.readers and not self.writer)
+                self.writer = True
+            finally:
+                self.waiting_writers -= 1
+                self.condition.notify_all()
+        try:
+            yield
+        finally:
+            async with self.condition:
+                self.writer = False
+                self.condition.notify_all()
+
+
 class OverrideManager:
     """每次变更在一个事务中替换同属性同层覆盖；一次发布完整内存快照。"""
 
@@ -62,13 +107,28 @@ class OverrideManager:
         self._entries: Tuple[Override, ...] = ()
         self._write_lock = asyncio.Lock()
         self._dispatch_locks: Dict[str, asyncio.Lock] = {}
+        self._account_barriers: Dict[str, AccountDispatchBarrier] = {}
         self._changed = asyncio.Event()
         self._expiry_task: Optional[asyncio.Task] = None
         self._loaded = False
+        self.pause_epochs: Dict[str, str] = {}
         self._listeners: List[Callable[[Tuple[str, ...]], None]] = []
 
     def dispatch_lock(self, session_id: str) -> asyncio.Lock:
         return self._dispatch_locks.setdefault(session_id, asyncio.Lock())
+
+    def account_barrier(self, account: str) -> AccountDispatchBarrier:
+        return self._account_barriers.setdefault(account, AccountDispatchBarrier())
+
+    @asynccontextmanager
+    async def transition_lock(self, property: str, target_id: str) -> AsyncIterator[None]:
+        if property == "soft_paused":
+            async with self.account_barrier(target_id).transition():
+                async with self.dispatch_lock(target_id):
+                    yield
+        else:
+            async with self.dispatch_lock(target_id):
+                yield
 
     def subscribe(self, listener: Callable[[Tuple[str, ...]], None]) -> None:
         if listener not in self._listeners:
@@ -123,10 +183,17 @@ class OverrideManager:
             self._transition(connection, expired, "expired", "", "", now)
             return self._rows(connection)
 
+    def _load_pause_epochs(self) -> Dict[str, str]:
+        with closing(self._connect()) as connection:
+            return {row[0]: row[1] for row in connection.execute(
+                "SELECT target_id,override_id FROM overrides WHERE property='soft_paused' AND target_scope='bot' ORDER BY rowid"
+            )}
+
     async def initialize(self, *, run_timer: bool = True) -> None:
         async with self._write_lock:
             if not self._loaded:
                 self._entries = await asyncio.to_thread(self._expire_and_load)
+                self.pause_epochs = await asyncio.to_thread(self._load_pause_epochs)
                 await asyncio.to_thread(self._prime_presets)
                 self._loaded = True
         if run_timer and (self._expiry_task is None or self._expiry_task.done()):
@@ -152,6 +219,9 @@ class OverrideManager:
 
     def _publish(self, entries: Tuple[Override, ...], changed_targets: Tuple[str, ...]) -> None:
         self._entries = entries
+        for entry in entries:
+            if entry.property == "soft_paused":
+                self.pause_epochs[entry.target_id] = entry.override_id
         self._changed.set()
         for listener in self._listeners:
             listener(changed_targets)
@@ -166,7 +236,7 @@ class OverrideManager:
             raise ValueError("覆盖必须关联目标、操作者和审计请求")
         await self.initialize(run_timer=False)
         # 所有路径锁顺序一致：群发送锁 → 全局持久化锁。
-        async with self.dispatch_lock(target_id):
+        async with self.transition_lock(property, target_id):
             async with self._write_lock:
                 now = time.time()
                 entry = None if cancel else Override(
@@ -213,7 +283,7 @@ class OverrideManager:
 
     @staticmethod
     def _validate(property: str, scope: str, value: Any, priority: int, duration: Optional[int], cancel: bool) -> None:
-        allowed = {"chat": {"muted", "frequency", "threshold", "mode"}, "bot": {"style", "persona"}}
+        allowed = {"chat": {"muted", "frequency", "threshold", "mode"}, "bot": {"style", "persona", "soft_paused"}}
         if property.startswith("ignore:") and scope in {"chat", "bot"} and priority == 100:
             import re
 
@@ -240,7 +310,7 @@ class OverrideManager:
             raise ValueError("未知表达预设")
         if property == "persona" and value not in {"gentle", "calm", "playful"}:
             raise ValueError("未知预设")
-        if property == "muted" and value is not True:
+        if property in {"muted", "soft_paused"} and value is not True:
             raise ValueError("静音覆盖只允许True；恢复应取消覆盖")
 
     def active(self, scope: str = "", target_id: str = "") -> Tuple[Override, ...]:

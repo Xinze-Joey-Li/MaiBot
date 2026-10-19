@@ -40,7 +40,7 @@ def format_time(timestamp: float) -> str:
 def query_window(name: str) -> Tuple[datetime, datetime]:
     hours = WINDOWS[name]
     end = datetime.now(LOCAL_TZ)
-    return end - timedelta(hours=hours), end
+    return (end.replace(hour=0, minute=0, second=0, microsecond=0) if name == "today" else end - timedelta(hours=hours)), end
 
 
 def report(command: str, lines: List[str], page: int, *, note: str = "") -> AdminActionResult:

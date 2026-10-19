@@ -49,6 +49,9 @@ class PlatformIOManager:
         self._inbound_dispatch_tasks: Set[asyncio.Task[None]] = set()
         self._started = False
 
+    def recent_confirmed_receipts(self, message_id: str) -> List[DeliveryReceipt]:
+        return self._outbound_tracker.recent_confirmed_receipts(message_id)
+
     @property
     def is_started(self) -> bool:
         """返回 Broker 当前是否已进入运行态。

@@ -931,7 +931,9 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
         """缓存一条新消息并唤醒主循环。"""
         from src.services.owner_admin.trigger_policy import is_ignored
 
-        if is_ignored(message):
+        from src.services.owner_admin.system_runtime import session_paused
+
+        if is_ignored(message) or session_paused(self.session_id):
             # 上游已正常持久化；保留多人上下文，但不更新频率、@、冷却或打断信号。
             history_message = await self._reasoning_engine._build_history_message(message, source_kind="user")
             if history_message is not None:

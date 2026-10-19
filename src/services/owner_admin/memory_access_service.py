@@ -1,8 +1,11 @@
 """M3 主人私聊入口；沿用 M0 审计、标签维护和 M2 生命周期。"""
 
+from copy import deepcopy
 from dataclasses import replace
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 import asyncio
+import hashlib
+import json
 import re
 import time
 import unicodedata
@@ -30,6 +33,7 @@ class OwnerMemoryAccessService:
         # 预览仅保留短期令牌及必要参数；不建独立计时器，重启后必须重新预览。
         self._previews: Dict[str, Tuple[float, Tuple[str, str, str, str], AdminActionRequest]] = {}
         self._lock = asyncio.Lock()
+        self.confirmed_dispatch: Optional[Callable[[AdminActionRequest], Awaitable[AdminActionResult]]] = None
 
     @staticmethod
     def _actor(request: AdminActionRequest) -> Tuple[str, str, str, str]:
@@ -48,6 +52,7 @@ class OwnerMemoryAccessService:
         if len(self._previews) >= 100:
             raise ValueError("待确认预览过多，请等待五分钟过期")
         token = uuid.uuid4().hex
+        request = replace(request, parameters=deepcopy(dict(request.parameters)))
         self._previews[token] = (now + 300, self._actor(request), request)
         return AdminActionResult(True, "preview", f"{message}\n五分钟内确认：/dfy confirm {token}", data={"token": token})
 
@@ -56,8 +61,10 @@ class OwnerMemoryAccessService:
         actor = (identity.platform, identity.bot_account_id, identity.user_id, identity.session_id)
         if preview is None or preview[0] <= time.time() or preview[1] != actor:
             return {}
-        allowed = {"memory_id", "group_id", "operation", "user_id"}
-        return {"confirmed_action": preview[2].parameters["command"],
+        allowed = {"memory_id", "group_id", "operation", "user_id", "message_id", "plugin_id", "duration", "platform_message_id", "target_session_id", "target_chat_id"}
+        return {"confirmed_action": preview[2].action_id, "original_request_id": preview[2].request_id,
+                "expires_at": str(preview[0]),
+                "parameter_digest": hashlib.sha256(json.dumps(dict(preview[2].parameters), sort_keys=True, ensure_ascii=False).encode()).hexdigest(),
                 **{key: value for key, value in preview[2].parameters.items() if key in allowed}}
 
     async def handle(self, request: AdminActionRequest) -> AdminActionResult:
@@ -71,7 +78,11 @@ class OwnerMemoryAccessService:
                     return AdminActionResult(False, "rejected", "预览已失效或不属于当前身份与通道，请重新预览。", error_code="preview_invalid")
                 del self._previews[request.parameters["token"]]
                 # 执行使用确认消息的审计关联，权限仍由本次 M0 Guard 及当前主人配置检查。
-                request = replace(preview[2], request_id=request.request_id)
+                request = replace(preview[2], request_id=request.request_id, actor_identity=request.actor_identity)
+                if not request.action_id.startswith("owner_admin.m3."):
+                    if self.confirmed_dispatch is None:
+                        raise RuntimeError("确认动作未连接到统一注册表")
+                    return await self.confirmed_dispatch(replace(request, parameters={**request.parameters, "_confirmed": True}))
                 confirmed = True
             try:
                 command = request.parameters["command"]

@@ -15,6 +15,8 @@ import re
 import time
 import uuid
 
+from src.services.owner_admin.system_runtime import SoftPauseInterrupt, check_cycle
+
 from src.chat.heart_flow.heartFC_utils import CycleDetail
 from src.chat.message_receive.message import SessionMessage
 from src.cli.console import console
@@ -869,11 +871,13 @@ class MaisakaReasoningEngine:
         )
         state.current_stage_started_at = planner_started_at
         state.action_tool_count = len(action_tool_definitions)
+        check_cycle(self._runtime.session_id)
         response = await self._run_interruptible_planner(
             injected_user_messages=injected_user_messages or None,
             tail_user_messages=self._runtime.build_focus_tail_user_messages() or None,
             tool_definitions=action_tool_definitions,
         )
+        check_cycle(self._runtime.session_id)
         state.response = response
         state.planner_duration_ms = (time.time() - planner_started_at) * 1000
 
@@ -1044,11 +1048,15 @@ class MaisakaReasoningEngine:
         """消费触发信号并准备本轮初始消息与触发消息。"""
 
         from src.services.owner_admin.override_runtime import begin_turn
+        from src.services.owner_admin.system_runtime import account_for_session, session_paused, stale_lease
 
         begin_turn(self._runtime)
         message_triggered, timeout_triggered, proactive_triggered = self._drain_ready_turn_triggers(queued_trigger)
         if proactive_triggered:
             self._runtime._clear_focus_cooldown_wakeup_scheduled()
+        if session_paused(self._runtime.session_id):
+            self._runtime._mark_message_turn_unscheduled()
+            return TurnStartContext([], None, False, False, True)
         silent_reply_frequency = self._runtime._is_reply_frequency_silent()
 
         if (
@@ -1064,6 +1072,8 @@ class MaisakaReasoningEngine:
             await self._runtime._wait_for_message_quiet_period()
             self._runtime._mark_message_turn_unscheduled()
 
+        if session_paused(self._runtime.session_id) or stale_lease(account_for_session(self._runtime.session_id)):
+            return TurnStartContext([], None, False, False, True)
         # 安静期内仍可能收到真实 @；收集消息前冻结最终批次，不能漏掉这些直接触发。
         begin_turn(self._runtime)
         cached_messages = self._runtime._collect_pending_messages() if self._runtime._has_pending_messages() else []
@@ -1222,6 +1232,12 @@ class MaisakaReasoningEngine:
                     is_tool_correction = False
                     replay_end_reason = "no_cycles"
                     while round_index < self._runtime._max_internal_rounds:
+                        from src.services.owner_admin.system_runtime import account_for_session, paused, stale_lease
+
+                        account = account_for_session(self._runtime.session_id)
+                        if paused(account) or stale_lease(account):
+                            replay_end_reason = "owner_soft_paused"
+                            break
                         # 纠错复用上一请求的真实目标及上下文；新消息仍由原有中断链路处理。
                         pending_round_messages = (
                             [] if is_tool_correction else await self._collect_pending_messages_before_next_round(round_index)
@@ -1266,6 +1282,9 @@ class MaisakaReasoningEngine:
                             if should_break_after_action:
                                 break
                             continue
+                        except SoftPauseInterrupt:
+                            state.cycle_end = CycleEnd("owner_soft_paused", "主人软暂停结束当前聊天轮。")
+                            break
                         except ReqAbortException as exc:
                             is_tool_correction = False
                             state.planner_interrupted = True

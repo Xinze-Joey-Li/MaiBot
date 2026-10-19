@@ -130,6 +130,7 @@ async def test_concurrent_duplicate_during_history_build_has_one_owner(monkeypat
 
     monkeypatch.setattr(service, "_reply", reply)
     runtime = SimpleNamespace(
+        session_id="a",
         _chat_history=[], _reasoning_engine=SimpleNamespace(_build_history_message=build),
         _emit_monitor_message_ingested=Mock(),
     )

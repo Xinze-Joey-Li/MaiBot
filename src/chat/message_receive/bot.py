@@ -829,7 +829,10 @@ class ChatBot:
                 additional_config["intercept_message_level"] = 1
                 from src.services.send_service import text_to_stream
 
-                sent = await text_to_stream(admin_result.message, message.session_id, storage_message=False)
+                from src.services.owner_admin.system_runtime import management_delivery
+
+                with management_delivery(message.session_id):
+                    sent = await text_to_stream(admin_result.message, message.session_id, storage_message=False)
                 if not sent:
                     logger.warning(
                         "主人管理命令已处理，但回执发送失败: status=%s audit_id=%s",

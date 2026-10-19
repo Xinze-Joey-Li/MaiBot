@@ -7,6 +7,7 @@ import asyncio
 import hashlib
 import logging
 import re
+import time
 
 from src.common.data_models.message_component_data_model import (
     AtComponent,
@@ -90,8 +91,58 @@ class OwnerAdminCommandRouter:
                 self.register_action(AdminActionSpec(
                     f"owner_admin.m3.{command}", permission_id, frozenset({"chat"}),
                     owner_required=True, allowed_chat_types=frozenset({"private"}),
-                    audit_parameter_keys=("memory_id", "group_id", "user_id", "operation", "duration", "global", "cancel", "confirmed_action"),
+                    audit_parameter_keys=("memory_id", "group_id", "user_id", "operation", "duration", "global", "cancel", "confirmed_action", "original_request_id", "parameter_digest", "plugin_id", "message_id", "expires_at", "platform_message_id", "target_session_id", "target_chat_id"),
                 ), m3_service.handle)
+
+            from .system_commands import SYSTEM_ACTIONS
+            from .system_service import OwnerSystemService
+
+            m3_service.confirmed_dispatch = self._dispatch_confirmed
+            self.register_action(AdminActionSpec("owner_admin.natural.clarify", "owner_admin.natural.clarify", frozenset({"chat"}),
+                                                owner_required=True, allowed_chat_types=frozenset({"private"})), self._natural_clarify)
+            system_service = OwnerSystemService(m3_service)
+            for command, permission in SYSTEM_ACTIONS.items():
+                self.register_action(AdminActionSpec(
+                    "owner_admin.system." + command, permission, frozenset({"chat"}), owner_required=True,
+                    allowed_chat_types=frozenset({"private"}),
+                    audit_parameter_keys=("operation", "duration", "plugin_id", "message_id"),
+                ), system_service.handle)
+
+    async def _preview_natural(self, request: AdminActionRequest) -> AdminActionResult:
+        from .control_service import known_chats
+        from .memory_access_service import validate_personal_content
+        from .read_service import safe_text
+
+        parameters = dict(request.parameters)
+        if "group_id" in parameters:
+            chats = await asyncio.to_thread(known_chats, request.actor_identity.bot_account_id, group_id=parameters["group_id"])
+            if len([chat for chat in chats if chat.group_id == parameters["group_id"]]) != 1:
+                return AdminActionResult(False, "rejected", "目标群不存在、账号归属不明或不唯一，未执行。", error_code="invalid_group_scope")
+        if request.action_id == "owner_admin.m3.memory_add":
+            try:
+                parameters["content"] = validate_personal_content(parameters["content"])
+            except ValueError as error:
+                return AdminActionResult(False, "rejected", safe_text(str(error)), error_code="invalid_memory_content")
+        if self._m3_service is None:
+            raise RuntimeError("自然语言确认服务不可用")
+        return self._m3_service._preview(replace(request, parameters=parameters),
+            f"自然语言管理预览：动作={request.action_id}；Bot={request.actor_identity.bot_account_id}；参数={safe_text(parameters)}。")
+
+    async def _natural_clarify(self, request: AdminActionRequest) -> AdminActionResult:
+        if request.parameters.get("reason") == "stale_message":
+            return AdminActionResult(False, "rejected", "历史或超期消息不会作为自然语言管理来源，请重新发送。", error_code="stale_management_source")
+        return AdminActionResult(False, "clarification_required", "管理意图或参数不够明确，未执行。请提供群/消息/记忆ID及明确时长；可用“管理：查询运行状态”等固定表达，或 /dfy help。")
+
+    async def _dispatch_confirmed(self, request: AdminActionRequest) -> AdminActionResult:
+        from src.config import config as current_config
+
+        spec = self.registry.get(request.action_id)
+        decision = self.permission_guard.authorize(request, spec,
+            owner_user_id=current_config.global_config.bot.owner_qq,
+            group_commands_enabled=current_config.global_config.bot.owner_group_commands_enabled)
+        if not decision.allowed:
+            return AdminActionResult(False, "denied", "确认时权限或目标范围已失效。", error_code=decision.error_code)
+        return await self._handlers[request.action_id](request)
 
     def _register_builtin_actions(self) -> None:
         self.register_action(
@@ -231,13 +282,38 @@ class OwnerAdminCommandRouter:
 
     async def handle_message(self, message: "SessionMessage") -> Optional[AdminActionResult]:
         body = self.command_body(message)
+        natural = False
+        parsed = None
+        from src.config.config import global_config
+
         if body is None:
             if self.contains_embedded_command(message):
                 return await self._reject_embedded_command(message)
-            return None
+            from . import natural_language
 
-        parsed = self._parse(body)
-        from src.config.config import global_config
+            text = natural_language.top_level_text(message)
+            proposal = natural_language.candidate(text) if text is not None else None
+            if proposal is None:
+                return None
+            natural = True
+            identity = OwnerIdentityResolver.from_message(message)
+            parsed = _ParsedCommand("owner_admin.natural.clarify", {})
+            fresh = -5 <= time.time() - message.timestamp.timestamp() <= 120
+            if not fresh:
+                parsed = _ParsedCommand("owner_admin.natural.clarify", {"reason": "stale_message"})
+            if fresh and identity.chat_type == "private" and OwnerIdentityResolver.is_owner(identity, global_config.bot.owner_qq):
+                from src.services.bot_account_service import bot_account_service
+
+                if await asyncio.to_thread(bot_account_service.is_bot_self, identity.platform, identity.bot_account_id):
+                    try:
+                        if proposal.startswith("group-name:"):
+                            proposal = await asyncio.to_thread(natural_language.resolve_group_name, identity.bot_account_id, proposal)
+                        if proposal != "clarify":
+                            parsed = natural_language.validate_candidate({"command": proposal}, self._parse)
+                    except ValueError:
+                        parsed = _ParsedCommand("owner_admin.natural.clarify", {})
+        if parsed is None:
+            parsed = self._parse(body)
 
         bot_mentioned = False
         if parsed.action_id.startswith("owner."):
@@ -286,6 +362,7 @@ class OwnerAdminCommandRouter:
         if parsed.action_id == "owner_admin.m3.confirm" and decision.allowed and self._m3_service is not None:
             parameters_for_audit.update(self._m3_service.confirmation_audit(identity, parsed.parameters["token"]))
         parameter_summary = self._parameter_summary(spec, parameters_for_audit)
+        parameter_summary["entry_source"] = "natural_language" if natural else "deterministic"
         try:
             is_new, audit_id = await asyncio.to_thread(
                 self.audit_store.reserve,
@@ -339,7 +416,14 @@ class OwnerAdminCommandRouter:
             lock_key = (request.target.resource_type, request.target.resource_id)
             lock = self._resource_locks.setdefault(lock_key, asyncio.Lock())
             async with lock:
-                result = await handler(request)
+                from .natural_language import mutating
+
+                needs_nl_preview = natural and (parsed.action_id.startswith("owner_admin.control.")
+                                               or parsed.action_id in {"owner_admin.m3.memory_add", "owner_admin.m3.ignore"})
+                if needs_nl_preview and mutating(parsed):
+                    result = await self._preview_natural(request)
+                else:
+                    result = await handler(request)
         except Exception:
             logger.exception("主人管理动作执行失败: %s", parsed.action_id)
             result = AdminActionResult(
@@ -426,7 +510,7 @@ class OwnerAdminCommandRouter:
         return AdminActionResult(
             success=True,
             status="succeeded",
-            message="主人管理：/dfy help、/dfy whoami。主人私聊只读查询：status、tokens 1h/24h/7d、"
+            message="主人管理：/dfy help、/dfy whoami。主人私聊只读查询：status、tokens 1h/24h/7d/today、"
                     "stats [群ID] 24h、models、errors 24h、replay 消息ID、replay latest 群ID、"
                     "persona show、memory me [关键词]、learning status、chats、health。追加 --page N 翻页。\n"
                     "行为管理同样仅主人私聊：mute/unmute 群ID、frequency 群ID 数值 时长/reset、"
@@ -435,7 +519,9 @@ class OwnerAdminCommandRouter:
                     "chat config 群ID、chat set 群ID frequency/threshold/mode 值、overrides [群ID]。mute需时长，时长1m至7d。\n"
                     "M3：memory add 本人事实、memory edit/delete 记忆ID；access list/allow/deny/reset 群ID；"
                     "ignore 用户ID 时长 --group 群ID（或 --global）、unignore 用户ID 同范围、ignore list；"
-                    "更正/撤回及接入修改先预览，再confirm 令牌。",
+                    "更正/撤回及接入修改先预览，再confirm 令牌。\n"
+                    "M4：recall 消息ID、pause 时长、pause status、resume、plugin list/enable/disable 插件ID。高风险动作先预览确认。\n"
+                    "自然语言支持固定模板，如“管理：查询运行状态”；模糊目标先澄清，副作用操作先预览确认。",
         )
 
     async def _whoami(self, request: AdminActionRequest) -> AdminActionResult:
@@ -554,6 +640,11 @@ class OwnerAdminCommandRouter:
     def _parse(body: str) -> "_ParsedCommand":
         if body.startswith("/dfy"):
             args = body.split()
+            from .system_commands import parse_system_command
+
+            system_command = parse_system_command(args.copy())
+            if system_command is not None:
+                return _ParsedCommand(*system_command)
             from .memory_access_commands import parse_m3_command
 
             m3_command = parse_m3_command(args.copy())

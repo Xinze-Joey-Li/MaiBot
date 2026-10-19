@@ -31,6 +31,7 @@ class PriorityAtReplyService:
         self._max_pending_per_session = max_pending_per_session
         self._pending: Deque[Tuple[SessionMessage, MaisakaHeartFlowChatting, List[LLMContextMessage]]] = deque()
         self._pending_keys: Set[Tuple[str, str]] = set()
+        self._pending_pause_epochs: Dict[Tuple[str, str], Tuple[str, str]] = {}
         self._running_per_session: Dict[str, int] = {}
         self._closing = False
         self._draining = False
@@ -46,7 +47,9 @@ class PriorityAtReplyService:
 
         from src.services.owner_admin.trigger_policy import is_ignored
 
-        if is_ignored(message) or not global_config.chat.priority_at_reply_enabled or message.is_notify or message.is_command:
+        from src.services.owner_admin.system_runtime import session_paused
+
+        if session_paused(message.session_id) or is_ignored(message) or not global_config.chat.priority_at_reply_enabled or message.is_notify or message.is_command:
             return False
         if is_bot_self(message.platform, message.message_info.user_info.user_id):
             return False
@@ -68,6 +71,10 @@ class PriorityAtReplyService:
         self, message: "SessionMessage", runtime: "MaisakaHeartFlowChatting",
         *, history: List["LLMContextMessage"] | None = None,
     ) -> bool:
+        from src.services.owner_admin import overrides, system_runtime
+
+        if system_runtime.session_paused(message.session_id):
+            return False
         key = (message.session_id, message.message_id)
         if self._closing or self._draining or key in self._tasks or key in self._pending_keys or key in self._seen:
             return False
@@ -93,22 +100,40 @@ class PriorityAtReplyService:
         # 每次回复使用独立上下文快照，不共享 Replyer 可变状态，也不加入普通 turn 队列。
         self._pending.append((message, runtime, list(runtime._chat_history if history is None else history)))
         self._pending_keys.add(key)
+        account = system_runtime.account_for_session(message.session_id)
+        self._pending_pause_epochs[key] = (account, overrides.override_manager.pause_epochs.get(account, ""))
         self._dispatch()
         return True
 
     def _dispatch(self) -> None:
+        from src.services.owner_admin import overrides, system_runtime
+
         # 跳过已用满单群额度的队列项，避免一个群占住所有其它群的可用槽位。
         while not self._closing and len(self._tasks) < self._max_concurrent:
             for _ in range(len(self._pending)):
                 message, runtime, history = self._pending.popleft()
                 session_id = message.session_id
+                key = (session_id, message.message_id)
+                lease = self._pending_pause_epochs[key]
+                if (system_runtime.paused(lease[0])
+                        or lease[1] != overrides.override_manager.pause_epochs.get(lease[0], "")):
+                    from src.decision_replay.recorder import record
+
+                    self._pending_keys.remove(key)
+                    del self._pending_pause_epochs[key]
+                    trace = self._replay_traces.pop(key, None)
+                    if trace is not None:
+                        record("scheduler", "turn.ended", "cancelled", "owner_soft_paused", trace=trace)
+                    continue
                 if self._running_per_session.get(session_id, 0) >= self._max_per_session:
                     self._pending.append((message, runtime, history))
                     continue
                 key = (session_id, message.message_id)
                 self._pending_keys.remove(key)
                 self._running_per_session[session_id] = self._running_per_session.get(session_id, 0) + 1
-                task = asyncio.create_task(self._reply(message, runtime, history), name=f"priority_at:{message.message_id}")
+                del self._pending_pause_epochs[key]
+                with system_runtime.admitted_lease(lease):
+                    task = asyncio.create_task(self._reply(message, runtime, history), name=f"priority_at:{message.message_id}")
                 self._tasks[key] = task
                 task.add_done_callback(lambda completed, reply_key=key: self._finish(reply_key, completed))
                 break
@@ -254,6 +279,7 @@ class PriorityAtReplyService:
         priority_cancel_queued(self)
         self._pending.clear()
         self._pending_keys.clear()
+        self._pending_pause_epochs.clear()
         tasks = list(self._tasks.values())
         for task in tasks:
             task.cancel()

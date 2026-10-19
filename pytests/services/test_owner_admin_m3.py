@@ -1,5 +1,6 @@
 """M3 使用真实临时存储、真实路由和事务故障注入；不写生产记忆或监控。"""
 
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 import asyncio
@@ -24,7 +25,7 @@ USER = "200000002"
 
 
 def incoming(body="hello", *, user=OWNER, group=False, mid="request", account="bot", session="private"):
-    return SimpleNamespace(platform="qq", session_id=session, message_id=mid, is_at=True, is_notify=False,
+    return SimpleNamespace(platform="qq", session_id=session, message_id=mid, timestamp=datetime.now(), is_at=True, is_notify=False,
                            is_command=False, raw_message=SimpleNamespace(components=[TextComponent(body)]),
                            message_info=SimpleNamespace(user_info=SimpleNamespace(user_id=user, user_nickname="随时改昵称"),
                                                         group_info=SimpleNamespace(group_id="12345") if group else None,

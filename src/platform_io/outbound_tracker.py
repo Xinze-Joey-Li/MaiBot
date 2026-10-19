@@ -239,6 +239,14 @@ class OutboundTracker:
         stored = self._uncertain.get(self._build_pending_key(internal_message_id, driver_id))
         return stored.receipt if stored is not None else None
 
+    def recent_confirmed_receipts(self, message_id: str, max_age: float = 120) -> List[DeliveryReceipt]:
+        """仅返回本进程近期真实 SENT 回执，支持内部 ID 与平台 ID，不猜测历史映射。"""
+        now = time.monotonic()
+        self._cleanup_expired(now)
+        return [stored.receipt for stored in self._receipts_by_external_id.values()
+                if 0 <= now - stored.stored_at < max_age and stored.receipt.status == DeliveryStatus.SENT
+                and message_id in {stored.receipt.internal_message_id, stored.receipt.external_message_id}]
+
     def get_receipt_by_external_id(self, external_message_id: str) -> Optional[DeliveryReceipt]:
         """根据外部平台消息 ID 查询已完成回执。
 

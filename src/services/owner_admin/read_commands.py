@@ -11,7 +11,7 @@ READ_ACTIONS = {
     "learning": ("D04", "学习状态"), "chats": ("E01", "聊天列表"),
     "health": ("F01", "服务健康"),
 }
-WINDOWS = {"1h": 1, "24h": 24, "7d": 168}
+WINDOWS = {"1h": 1, "24h": 24, "7d": 168, "today": 0}
 
 
 def parse_read_command(args: List[str]) -> Optional[Tuple[str, Dict[str, Any]]]:

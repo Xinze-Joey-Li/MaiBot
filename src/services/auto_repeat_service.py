@@ -55,7 +55,9 @@ class AutoRepeatService:
     async def on_incoming_message(self, message: "SessionMessage") -> None:
         from src.services.owner_admin.trigger_policy import is_ignored
 
-        if is_ignored(message):
+        from src.services.owner_admin.system_runtime import session_paused
+
+        if is_ignored(message) or session_paused(message.session_id):
             return
         from src.common.data_models.message_component_data_model import TextComponent
         from src.config.config import global_config

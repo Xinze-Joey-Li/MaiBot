@@ -55,7 +55,12 @@ class MessageTurnScheduler:
 
     def schedule_message_turn(self) -> None:
         runtime = self._runtime
+        from src.services.owner_admin.system_runtime import session_paused
         from src.maisaka.planner_lifecycle import lifecycle_mode
+
+        if session_paused(runtime.session_id):
+            self._replay("reject", "owner_soft_paused")
+            return
 
         if lifecycle_mode() == "optimized" and runtime._agent_state == runtime._STATE_RUNNING:
             self._replay('deferred', 'active_turn_buffers_messages')
