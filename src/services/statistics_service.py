@@ -424,7 +424,9 @@ async def get_model_statistics(start_time: datetime, end_time: datetime | None =
     return await asyncio.to_thread(_get_model_statistics_sync, start_time, end_time)
 
 
-def _get_model_statistics_sync(start_time: datetime, end_time: datetime | None = None) -> List[ModelStatistics]:
+def _get_model_statistics_sync(
+    start_time: datetime, end_time: datetime | None = None, *, limit: int = 10,
+) -> List[ModelStatistics]:
     """在线程中同步查询指定时间范围内的模型统计数据。"""
     model_name_expr = func.coalesce(col(ModelUsage.model_assign_name), col(ModelUsage.model_name), "unknown")
     cache_hit_tokens_expr = _cache_hit_tokens_expression()
@@ -443,7 +445,7 @@ def _get_model_statistics_sync(start_time: datetime, end_time: datetime | None =
         .where(col(ModelUsage.timestamp) >= start_time)
         .group_by(model_name_expr)
         .order_by(desc(func.count()))
-        .limit(10)
+        .limit(max(1, min(limit, 400)))
     )
     if end_time is not None:
         statement = statement.where(col(ModelUsage.timestamp) <= end_time)

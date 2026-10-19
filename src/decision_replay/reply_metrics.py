@@ -168,9 +168,13 @@ def persist_delivery_state(connection, event: Dict[str, Any]) -> None:
          status, json.dumps(ids), event["timestamp"]))
 
 
-def statistics(store, **filters: Any) -> Dict[str, Any]:
-    with closing(store.connect()) as connection:
+def statistics(store, *, read_only: bool = False, max_events: Optional[int] = None, **filters: Any) -> Dict[str, Any]:
+    with closing(store.connect_readonly() if read_only else store.connect()) as connection:
         connection.execute("BEGIN")
+        if max_events is not None:
+            count = connection.execute("SELECT COUNT(*) FROM events WHERE event_type LIKE 'reply_stats.%'").fetchone()[0]
+            if count > max_events:
+                raise ValueError("保留事件过多，本次不生成不完整统计；请使用 WebUI 查询")
         rows = [dict(row) for row in connection.execute("SELECT * FROM events WHERE event_type LIKE 'reply_stats.%' ORDER BY timestamp,sequence")]
         legacy = connection.execute("SELECT COUNT(*) FROM events WHERE event_type NOT LIKE 'reply_stats.%'").fetchone()[0]
         activated = connection.execute("SELECT value FROM replay_metadata WHERE key='reply_metrics_started_at'").fetchone()

@@ -73,11 +73,18 @@ class TagMemoryStore:
         self.db_path = Path(db_path)
 
     @contextmanager
-    def _connect(self, *, write: bool = False) -> Iterator[sqlite3.Connection]:
-        connection = sqlite3.connect(str(self.db_path), timeout=5)
+    def _connect(self, *, write: bool = False, read_only: bool = False) -> Iterator[sqlite3.Connection]:
+        if read_only and write:
+            raise ValueError("只读连接不能启动写事务")
+        connection = (
+            sqlite3.connect(self.db_path.resolve().as_uri() + "?mode=ro", uri=True, timeout=5)
+            if read_only else sqlite3.connect(str(self.db_path), timeout=5)
+        )
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys=ON")
         connection.execute("PRAGMA busy_timeout=5000")
+        if read_only:
+            connection.execute("PRAGMA query_only=ON")
         try:
             if write:
                 connection.execute("BEGIN IMMEDIATE")
@@ -935,9 +942,11 @@ class TagMemoryStore:
 
     def list_current_tags(
         self, session_id: str, *, person_users: Optional[List[str]] = None, limit: Optional[int] = None,
+        read_only: bool = False,
     ) -> List[Dict[str, Any]]:
-        with self._connect() as connection:
-            self._expire_manual_activity(connection, time.time(), session_id)
+        with self._connect(read_only=read_only) as connection:
+            if not read_only:
+                self._expire_manual_activity(connection, time.time(), session_id)
             result = []
             query = ("SELECT t.*,c.path FROM tags t JOIN categories c ON c.id=t.category_id "
                      "WHERE t.session_id=? AND t.status NOT IN ('superseded','deleted')")

@@ -76,6 +76,13 @@ class ReplayStore:
             """)
             return connection
 
+    def connect_readonly(self) -> sqlite3.Connection:
+        """不创建文件、建表或触发清理的查询连接。"""
+        connection = sqlite3.connect(self.path.resolve().as_uri() + "?mode=ro", uri=True, timeout=2)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA query_only=ON")
+        return connection
+
     def submit(self, event: Dict[str, Any]) -> None:
         try:
             with self.lock:
@@ -413,8 +420,9 @@ class ReplayStore:
             row["usage"]["cost"] = None
         return row
 
-    def detail(self, turn_id: str, session_id: str, *, after: int = 0, limit: int = 100) -> Optional[Dict[str, Any]]:
-        with closing(self.connect()) as connection:
+    def detail(self, turn_id: str, session_id: str, *, after: int = 0, limit: int = 100,
+               read_only: bool = False) -> Optional[Dict[str, Any]]:
+        with closing(self.connect_readonly() if read_only else self.connect()) as connection:
             connection.execute("BEGIN")
             row = connection.execute(
                 "SELECT * FROM turns WHERE logical_turn_id=? AND session_id=?", (turn_id, session_id)

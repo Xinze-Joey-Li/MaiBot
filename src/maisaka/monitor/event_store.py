@@ -1,7 +1,7 @@
 """麦麦观察事件账本。"""
 
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
 from sqlmodel import Session, select
@@ -27,6 +27,25 @@ CLEANUP_CHECK_INTERVAL_SECONDS = 60
 _cleanup_lock = threading.Lock()
 _records_since_cleanup = 0
 _last_cleanup_at = 0.0
+
+
+def find_message_observations(
+    session_ids: List[str], message_id: str, *, start: float, end: float,
+) -> List[Dict[str, Any]]:
+    """精确关联尚未超期的消息监控；不把相邻 Planner 事件推测为该消息的决策。"""
+    with get_db_session(auto_commit=False) as session:
+        rows = session.exec(
+            select(MaisakaMonitorEventRecord).where(
+                MaisakaMonitorEventRecord.session_id.in_(session_ids),
+                MaisakaMonitorEventRecord.event_type.in_(["message.ingested", "message.sent"]),
+                MaisakaMonitorEventRecord.timestamp >= max(start, time.time() - MAX_MONITOR_EVENT_AGE_HOURS * 3600),
+                MaisakaMonitorEventRecord.timestamp < end,
+                text("json_extract(payload_json, '$.message_id') = :message_id"),
+            ).order_by(MaisakaMonitorEventRecord.event_id.desc()).limit(10),
+            params={"message_id": message_id},
+        ).all()
+    return [{"event_type": row.event_type, "timestamp": row.timestamp,
+             "content": json.loads(row.payload_json).get("content", "")} for row in rows]
 
 
 def record_monitor_event(event_type: str, payload: dict[str, Any]) -> dict[str, Any]:

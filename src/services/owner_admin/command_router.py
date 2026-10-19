@@ -52,6 +52,19 @@ class OwnerAdminCommandRouter:
         self._resource_locks: Dict[tuple[str, str], asyncio.Lock] = {}
         if registry is None:
             self._register_builtin_actions()
+            from .read_commands import READ_ACTIONS
+            from .read_service import OwnerReadService
+
+            read_service = OwnerReadService()
+            for command, (permission_id, _) in READ_ACTIONS.items():
+                self.register_action(
+                    AdminActionSpec(
+                        f"owner_admin.read.{command}", permission_id, frozenset({"chat"}),
+                        owner_required=True, allowed_chat_types=frozenset({"private"}),
+                        audit_parameter_keys=("window", "page"),
+                    ),
+                    read_service.handle,
+                )
 
     def _register_builtin_actions(self) -> None:
         self.register_action(
@@ -383,7 +396,9 @@ class OwnerAdminCommandRouter:
         return AdminActionResult(
             success=True,
             status="succeeded",
-            message="主人管理命令：/dfy help 查看帮助，/dfy whoami 查看当前身份识别结果。",
+            message="主人管理：/dfy help、/dfy whoami。主人私聊只读查询：status、tokens 1h/24h/7d、"
+                    "stats [群ID] 24h、models、errors 24h、replay 消息ID、replay latest 群ID、"
+                    "persona show、memory me [关键词]、learning status、chats、health。追加 --page N 翻页。",
         )
 
     async def _whoami(self, request: AdminActionRequest) -> AdminActionResult:
@@ -502,6 +517,11 @@ class OwnerAdminCommandRouter:
     def _parse(body: str) -> "_ParsedCommand":
         if body.startswith("/dfy"):
             args = body.split()
+            from .read_commands import parse_read_command
+
+            read_command = parse_read_command(args)
+            if read_command is not None:
+                return _ParsedCommand(*read_command)
             subcommand = args[1].lower() if len(args) > 1 else "help"
             if subcommand == "help" and len(args) == 2:
                 return _ParsedCommand("owner_admin.help", {})
