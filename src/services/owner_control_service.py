@@ -19,6 +19,10 @@ def owner_security_prompt() -> str:
 def is_owner(message: "SessionMessage", owner_qq: str) -> bool:
     """通过共享解析器检查可信 QQ 用户 ID，不信任昵称、正文或模型声明。"""
 
+    if message.platform.strip().lower() != "qq" or not str(owner_qq).strip():
+        return False
+    if str(message.message_info.user_info.user_id).strip() != str(owner_qq).strip():
+        return False
     identity = OwnerIdentityResolver.from_message(message)
     return OwnerIdentityResolver.is_owner(identity, owner_qq)
 

@@ -14,12 +14,12 @@ from src.maisaka import mode_policy
 from src.maisaka.turn_trigger import gates, scheduler
 
 
-def test_compatible_default_and_new_template_use_frequency(tmp_path):
-    assert ChatReplyTimingConfig().reply_trigger_mode == "frequency"
+def test_default_and_new_template_use_dynamic(tmp_path):
+    assert ChatReplyTimingConfig().reply_trigger_mode == "dynamic"
     path = tmp_path / "bot_config.toml"
     config_module.generate_new_config_file(Config, path, config_module.CONFIG_VERSION)
     data = tomlkit.parse(path.read_text(encoding="utf-8"))
-    assert data["chat"]["reply_timing"]["reply_trigger_mode"] == "frequency"
+    assert data["chat"]["reply_timing"]["reply_trigger_mode"] == "dynamic"
 
 
 @pytest.mark.parametrize("mode", [None, "frequency", "dynamic"])
@@ -35,7 +35,7 @@ def test_upgrade_preserves_explicit_modes_and_missing_field_compatibility(tmp_pa
     monkeypatch.setattr(config_module, "should_apply_legacy_migration", lambda name: False)
     loaded, upgraded = config_module.load_config_from_file(Config, path, config_module.CONFIG_VERSION)
     assert upgraded
-    assert loaded.chat.reply_timing.reply_trigger_mode == (mode if mode is not None else "frequency")
+    assert loaded.chat.reply_timing.reply_trigger_mode == (mode if mode is not None else "dynamic")
     written = tomlkit.parse(path.read_text(encoding="utf-8"))
     assert written["chat"]["reply_timing"]["reply_trigger_mode"] == loaded.chat.reply_timing.reply_trigger_mode
 

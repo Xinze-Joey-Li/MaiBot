@@ -786,7 +786,7 @@
     "footer": "您可以随时在设置中修改这些配置",
     "defaults": {
       "personality": {
-        "personality": "是一个大二女大学生，现在正在上网和群友聊天。有轻微攻击性",
+        "personality": "喜欢在网上和群友聊天，偶尔刷贴吧。有轻微攻击性",
         "replyStyle": "你的风格平淡简短。可以参考贴吧，知乎和微博的回复风格。不浮夸不长篇大论，不要过分修辞和复杂句。",
         "multipleReplyStyles": {
           "plain": "你的风格平淡但不失讽刺，很简短，很白话。可以参考贴吧、微博的回复风格。",
@@ -850,7 +850,7 @@
         "personality": {
           "label": "人格特征 *",
           "placeholder": "描述机器人的人格特质和身份特征（建议 120 字以内）",
-          "description": "例如：是一个女大学生，现在在读大二，会刷贴吧"
+          "description": "例如：喜欢上网聊天，偶尔刷贴吧"
         },
         "replyStyle": {
           "label": "表达风格 *",

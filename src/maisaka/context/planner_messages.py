@@ -10,6 +10,8 @@ from src.common.data_models.message_component_data_model import (
     ReplyComponent,
     TextComponent,
 )
+from src.config.config import global_config
+from src.services.owner_control_service import is_owner
 
 from src.maisaka.context.message_adapter import format_speaker_content
 from src.maisaka.context.message_id_alias import to_display_message_id
@@ -27,6 +29,7 @@ def build_planner_prefix(
     include_message_id: bool = True,
     include_chat_id: bool = False,
     is_self_message: bool = False,
+    owner_verified: Optional[bool] = None,
 ) -> str:
     """构造 Maisaka 规划器使用的统一消息前缀。
 
@@ -40,6 +43,7 @@ def build_planner_prefix(
         include_message_id: 是否输出 `msg_id` 段。
         include_chat_id: 是否输出 `chat_id` 段。
         is_self_message: 是否显式标注这条消息是 bot 自己发送的。
+        owner_verified: 宿主按真实平台账号校验的身份；无真实消息时不标注。
 
     Returns:
         str: 拼接完成的规划器前缀。
@@ -70,6 +74,8 @@ def build_planner_prefix(
         message_attrs.append(f'group_card="{escape(normalized_group_card, quote=True)}"')
     if is_self_message:
         message_attrs.append('is_self_message="true"')
+    if owner_verified is not None:
+        message_attrs.append(f'owner_verified="{str(owner_verified).lower()}"')
     return f"<message {' '.join(message_attrs)}>\n"
 
 
@@ -138,6 +144,7 @@ def build_planner_user_prefix_from_session_message(
         include_message_id=include_message_id and not message.is_notify and bool(message.message_id),
         include_chat_id=include_chat_id,
         is_self_message=is_self_message,
+        owner_verified=not is_self_message and is_owner(message, global_config.bot.owner_qq),
     )
 
 

@@ -71,9 +71,11 @@ MaiSaka 不仅仅是一个机器人，不仅仅是一个可以帮你完成任务
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="depends-data/readme/sec-install-night.svg"><img src="depends-data/readme/sec-install-day.svg" alt="安装 · INSTALL" width="100%"></picture>
 
-**QQ Agent 个人迭代：v0.4.0（重构主人系统，增加主人权限方便在群里中直接管理）** · 基于 MaiBot v1.3.5，开发分支 `feature/qq-agent`，版本标签 [`v0.4.0`](https://github.com/Xinze-Joey-Li/MaiBot/tree/v0.4.0)。
+**QQ Agent 个人迭代：v0.4.0.1（增加了主人快速设置白名单的功能）** · 基于 MaiBot v1.3.5，开发分支 `feature/qq-agent`，版本标签 [`v0.4.0.1`](https://github.com/Xinze-Joey-Li/MaiBot/tree/v0.4.0.1)。
 
 主人系统 M0–M4 包含 25 项受控管理能力、统一身份权限与审计、临时配置覆盖和有限中文管理模板。管理命令默认仅主人私聊使用，可管理指定群的行为与接入策略；主人在群聊可用 /dfy tokens [1h/24h/7d/today] 查询公开用量（默认24h），费用仍须私聊。真实 QQ 撤回及完整外部端到端验收仍待完成，详见 [主人管理系统技术文档](docs/owner-admin-stage3-technical.md)。
+
+主人私聊可用 `/dfy access allow group <群ID>`、`/dfy access allow private <QQ号>` 添加接入白名单，也支持“添加群聊1234567890进入白名单”“添加账号1234567890进白名单”；均先预览确认，普通用户和群内操作拒绝，详见 [私聊白名单说明](docs/owner-private-whitelist.md)。
 
 QQ-Agent 的 148 张附加表情为可选资源。建议使用 `git clone --depth 1 --branch feature/qq-agent https://github.com/Xinze-Joey-Li/MaiBot.git`，默认不下载该批图片。需要时运行 `uv run python scripts/manage_qq_agent_emojis.py --download`，停止机器人后加 `--register` 注册；详见 [可选表情说明](resources/qq-agent/emoji/README.md)。普通完整克隆仍包含历史图片。
 

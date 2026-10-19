@@ -7,6 +7,8 @@ import time
 
 from src.chat.message_receive.message import SessionMessage
 from src.chat.utils.utils import is_bot_self
+from src.config.config import global_config
+from src.services.owner_control_service import is_owner
 
 from .dynamic_gate import MIN_WINDOW_SCORE_COUNT, DynamicReplyGate
 from .pending_observation import PendingObservation
@@ -172,6 +174,7 @@ class DynamicReplyTurnGate:
             recent_message_count=recent_message_count,
             seconds_since_bot_message=seconds_since_bot,
             pending_count=len(messages),
+            owner_verified=any(is_owner(message, global_config.bot.owner_qq) for message in messages),
         )
 
     def _summarize_recent_history(self, now: float) -> tuple[int, int, float]:

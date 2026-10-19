@@ -89,7 +89,7 @@ function SetupPageContent() {
       t('setupPage.defaults.personality.multipleReplyStyles.shortSymbol'),
       t('setupPage.defaults.personality.multipleReplyStyles.translation'),
     ],
-    multiple_probability: 0.2,
+    multiple_probability: 0,
   })
   const [currentStep, setCurrentStep] = useState(0)
   const [isCompleting, setIsCompleting] = useState(false)

@@ -32,12 +32,14 @@ class ReplyLikelihoodWeights:
     recent_message_count: float = -0.0367
     log_seconds_since_bot: float = 0.0571
     pending_count: float = 0.1012
+    # 主人的普通发言温和提高关注度；按批次布尔特征计分，不随主人消息数量叠加。
+    owner_verified: float = 0.4
 
     def __post_init__(self) -> None:
         values = (
             self.intercept, self.mention_bot, self.at_other, self.question_mark,
             self.placeholder_only, self.recent_self_ratio, self.recent_message_count,
-            self.log_seconds_since_bot, self.pending_count,
+            self.log_seconds_since_bot, self.pending_count, self.owner_verified,
         )
         if not all(isfinite(value) for value in values):
             raise ValueError("回复评分权重必须是有限数值")
@@ -73,6 +75,9 @@ class ReplyLikelihoodInput:
 
     pending_count: int
     """本批新的外部消息条数。"""
+
+    owner_verified: bool = False
+    """本批是否包含宿主按真实平台账号校验的主人消息。"""
 
 
 def summarize_pending_texts(texts: Sequence[str], *, has_at_bot: bool) -> Tuple[bool, bool, bool]:
@@ -119,6 +124,7 @@ def score_reply_likelihood(
             max(0.0, likelihood_input.seconds_since_bot_message)
         ),
         "pending_count": weights.pending_count * min(MAX_PENDING_COUNT, max(0, likelihood_input.pending_count)),
+        "owner_verified": weights.owner_verified * float(likelihood_input.owner_verified),
     }
     logit = sum(contributions.values())
     if not isfinite(logit):
