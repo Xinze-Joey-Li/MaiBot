@@ -1,7 +1,7 @@
 """M3 主人私聊入口；沿用 M0 审计、标签维护和 M2 生命周期。"""
 
 from copy import deepcopy
-from dataclasses import replace
+from dataclasses import asdict, replace
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 import asyncio
 import hashlib
@@ -61,7 +61,7 @@ class OwnerMemoryAccessService:
         actor = (identity.platform, identity.bot_account_id, identity.user_id, identity.session_id)
         if preview is None or preview[0] <= time.time() or preview[1] != actor:
             return {}
-        allowed = {"memory_id", "group_id", "operation", "user_id", "message_id", "plugin_id", "duration", "platform_message_id", "target_session_id", "target_chat_id"}
+        allowed = {"memory_id", "group_id", "operation", "user_id", "message_id", "plugin_id", "duration", "platform_message_id", "target_session_id", "target_chat_id", "chat_type", "target_id"}
         return {"confirmed_action": preview[2].action_id, "original_request_id": preview[2].request_id,
                 "expires_at": str(preview[0]),
                 "parameter_digest": hashlib.sha256(json.dumps(dict(preview[2].parameters), sort_keys=True, ensure_ascii=False).encode()).hexdigest(),
@@ -192,6 +192,8 @@ class OwnerMemoryAccessService:
         from .access_policy_service import access_targets, apply_access, policy_digest
 
         actor, parameters = request.actor_identity, dict(request.parameters)
+        if "chat_type" in parameters:
+            return await self._allow_target(request, confirmed)
         chats = await asyncio.to_thread(known_chats, actor.bot_account_id,
                                        **({"group_id": parameters["group_id"]} if parameters.get("group_id") else {}))
         if parameters["operation"] == "list":
@@ -222,3 +224,34 @@ class OwnerMemoryAccessService:
                                         parameters["digest"], lambda: self._authorize(request))
         return AdminActionResult(True, "succeeded", f"群 {chats[0].group_id} 实际接入允许={result.allowed}；"
                                  f"source={result.source}；reason={result.reason}。已运行回合不回收。")
+
+    async def _allow_target(self, request: AdminActionRequest, confirmed: bool) -> AdminActionResult:
+        """只经主人私聊所属的唯一适配器添加目标，不创建虚构聊天流或改全局默认值。"""
+        from .access_policy_service import access_targets, apply_access, policy_digest
+
+        actor, parameters = request.actor_identity, dict(request.parameters)
+        if actor.chat_type != "private" or not actor.bot_account_verified or not self._authorize(request):
+            raise PermissionError("仅允许已认证主人通过私聊添加白名单")
+        if parameters["operation"] != "allow" or parameters["chat_type"] not in {"group", "private"}:
+            raise ValueError("仅支持添加群聊或私聊白名单")
+        chats = await asyncio.to_thread(known_chats, actor.bot_account_id)
+        source = [chat for chat in chats if chat.session_id == actor.session_id
+                  and not chat.group_id and chat.user_id == actor.user_id]
+        if len(source) != 1:
+            raise ValueError("无法确认主人私聊真实会话归属，请使用已有私聊通道")
+        targets = await asyncio.to_thread(access_targets, source[0])
+        if len(targets) != 1:
+            raise ValueError("主人私聊必须唯一匹配当前账号的适配器接收路由；请使用本地管理")
+        identity, _ = targets[0]
+        if not confirmed:
+            parameters.update(digest=await asyncio.to_thread(policy_digest), adapter_identity=asdict(identity))
+            kind = "群聊" if parameters["chat_type"] == "group" else "私聊"
+            return self._preview(replace(request, parameters=parameters),
+                                 f"添加{kind}白名单：目标={parameters['target_id']}；Bot={actor.bot_account_id}；"
+                                 f"适配器={identity.adapter_id}。仅放行该目标，不更改其他名单和默认策略；不授予管理权限。")
+        if parameters["adapter_identity"] != asdict(identity):
+            raise ValueError("适配器身份或路由已变化，请重新预览")
+        result = await self._write(request, apply_access, identity, parameters["target_id"], "allow",
+                                   parameters["digest"], lambda: self._authorize(request), chat_type=parameters["chat_type"])
+        return AdminActionResult(True, "succeeded", f"{parameters['chat_type']} {parameters['target_id']} "
+                                 f"实际接入允许={result.allowed}；source={result.source}。未授予管理权限，未自动加群或加好友。")

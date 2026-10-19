@@ -33,7 +33,7 @@ M4之后的A02增量允许可信主人群聊查询公开Token用量，其他新�
 | D04 | learning status | 部分实现：实际配置与可核实活动分开；无记录不声称成功，不将单次成功当永久人格变化 |
 | E01 | chats | 实现当前账号可归属聊天流查询；历史、内存加载、运行状态分开 |
 | E02 | chat config/set 群ID 字段 值 | 实现：白名单frequency/threshold/mode等支持字段，不允许任意toml键 |
-| E03 | access list/deny/allow/reset [群ID] | 实现受限路由：账号+唯一适配器+群精确匹配；歧义拒绝；不关闭主人私聊入口 |
+| E03 | access list/deny/allow/reset [群ID]；access allow group/private ID | 主人私聊添加群聊/私聊目标放行，限定账号及唯一适配器；原群规则保留；歧义拒绝；不关闭主人私聊入口 |
 | E04 | ignore/unignore 用户ID … --group 群ID/--global | 实现：可信平台用户ID，显式范围，统一期限；只限制触发，保留消息/其他人/主人恢复入口 |
 | E06 | recall 消息ID | 受限实现，平台验收待完成：仅近期可靠SENT回执+本地本人消息+真实聊天映射；固定NapCat API明确成功才成功 |
 | F01 | health | 部分实现：进程资源、数据库、插件/队列快照；缺看门狗可查询源等显示不可用 |

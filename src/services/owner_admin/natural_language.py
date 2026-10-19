@@ -19,6 +19,7 @@ ALIASES = {
     "撤回我的记忆": "memory delete", "查看学习状态": "learning status", "查看聊天列表": "chats",
     "查看群聊配置": "chat config", "设置群聊配置": "chat set", "查看接入名单": "access list",
     "允许群接入": "access allow", "禁止群接入": "access deny", "重置群接入": "access reset",
+    "添加群聊白名单": "access allow group", "添加私聊白名单": "access allow private",
     "屏蔽用户": "ignore", "解除用户屏蔽": "unignore", "查看用户屏蔽": "ignore list",
     "撤回机器人消息": "recall", "查询服务健康": "health", "软暂停机器人": "pause", "恢复机器人": "resume",
     "查看暂停状态": "pause status", "查看插件列表": "plugin list", "启用插件": "plugin enable", "禁用插件": "plugin disable",

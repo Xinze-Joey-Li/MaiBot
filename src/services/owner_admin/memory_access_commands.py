@@ -40,6 +40,9 @@ def parse_m3_command(args: List[str]) -> Optional[Tuple[str, Dict[str, Any]]]:
                 pass
             elif len(parts) == 2 and parts[0] in {"allow", "deny", "reset"} and re.fullmatch(r"[1-9][0-9]{4,19}", parts[1]):
                 data["group_id"] = parts[1]
+            elif (len(parts) == 3 and parts[0] == "allow" and parts[1] in {"group", "private"}
+                  and re.fullmatch(r"[1-9][0-9]{4,19}", parts[2])):
+                data.update(chat_type=parts[1], target_id=parts[2])
             else:
                 return None
         elif command in {"ignore", "unignore"}:

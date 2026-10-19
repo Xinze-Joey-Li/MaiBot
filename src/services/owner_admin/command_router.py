@@ -92,7 +92,7 @@ class OwnerAdminCommandRouter:
                 self.register_action(AdminActionSpec(
                     f"owner_admin.m3.{command}", permission_id, frozenset({"chat"}),
                     owner_required=True, allowed_chat_types=frozenset({"private"}),
-                    audit_parameter_keys=("memory_id", "group_id", "user_id", "operation", "duration", "global", "cancel", "confirmed_action", "original_request_id", "parameter_digest", "plugin_id", "message_id", "expires_at", "platform_message_id", "target_session_id", "target_chat_id"),
+                    audit_parameter_keys=("memory_id", "group_id", "user_id", "operation", "duration", "global", "cancel", "confirmed_action", "original_request_id", "parameter_digest", "plugin_id", "message_id", "expires_at", "platform_message_id", "target_session_id", "target_chat_id", "chat_type", "target_id"),
                 ), m3_service.handle)
 
             from .system_commands import SYSTEM_ACTIONS
@@ -540,6 +540,7 @@ class OwnerAdminCommandRouter:
                     "style gentle/calm 时长或reset、persona gentle/playful/calm 时长或default、"
                     "chat config 群ID、chat set 群ID frequency/threshold/mode 值、overrides [群ID]。mute需时长，时长1m至7d。\n"
                     "M3：memory add 本人事实、memory edit/delete 记忆ID；access list/allow/deny/reset 群ID；"
+                    "主人私聊添加白名单：access allow group 群ID / access allow private QQ号；"
                     "ignore 用户ID 时长 --group 群ID（或 --global）、unignore 用户ID 同范围、ignore list；"
                     "更正/撤回及接入修改先预览，再confirm 令牌。\n"
                     "M4：recall 消息ID、pause 时长、pause status、resume、plugin list/enable/disable 插件ID。高风险动作先预览确认。\n"
