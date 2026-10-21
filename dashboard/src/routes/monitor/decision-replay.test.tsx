@@ -4,6 +4,7 @@ import { DecisionReplayPage } from './decision-replay'
 
 const get = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/http', () => ({ backendApi: { get } }))
+vi.mock('@tanstack/react-router', async (original) => ({ ...await original<typeof import('@tanstack/react-router')>(), useSearch: () => ({}) }))
 const turn = {
   logical_turn_id: 'test-turn',
   session_id: 'test-group',

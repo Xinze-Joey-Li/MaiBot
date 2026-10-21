@@ -5095,6 +5095,17 @@ class TelemetryConfig(ConfigBase):
     """是否发送匿名运行统计；关闭不影响正常使用。"""
 
 
+class DecisionObservationConfig(ConfigBase):
+    """仅采集明确授权的真实 QQ 群会话；不影响生产决策。"""
+
+    enabled: bool = Field(default=False, description="启用静默决策观察，默认关闭。")
+    authorized_session_ids: List[str] = Field(
+        default_factory=list, description="已授权 QQ 群的真实 ChatSession.session_id；不接受群号或自行计算的 hash。"
+    )
+    retention_days: int = Field(default=30, ge=1, le=365, description="观察数据保留天数。")
+    queue_capacity: int = Field(default=2048, ge=1, le=65536, description="观察后台队列上限；调整后重启可重建物理队列。")
+
+
 class DebugConfig(ConfigBase):
     """调试配置类"""
 

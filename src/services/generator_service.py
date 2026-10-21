@@ -164,12 +164,11 @@ async def generate_reply(
         raise ve
 
     except UserWarning as uw:
-        logger.warning(f"[GeneratorService] 中断了生成: {uw}")
+        logger.warning(f"[GeneratorService] 中断了生成: error_type={type(uw).__name__}")
         return False, None
 
     except Exception as e:
-        logger.error(f"[GeneratorService] 生成回复时出错: {e}")
-        logger.error(traceback.format_exc())
+        logger.error(f"[GeneratorService] 生成回复时出错: error_type={type(e).__name__}")
         return False, None
 
 

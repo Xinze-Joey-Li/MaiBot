@@ -1,0 +1,18 @@
+{
+  "verified_images": 148,
+  "imported_entries": 148,
+  "registered": 32,
+  "matched_registered": 30,
+  "unmatched_registered": [
+    {
+      "hash": "b74bfb24a4fd0382d6d2d8af946807445ff1b6d970e77118e83f683b6a4201b6",
+      "tags": "害怕蟑螂,bug"
+    },
+    {
+      "hash": "5b6ed1f5d3ff1ce21db12096db5de2bd12e5cef0fca9b0308735aa23f419e8ee",
+      "tags": "耍帅,得意,傲娇,墨镜,骄傲"
+    }
+  ],
+  "quality": "1.0 for all 148 images, explicitly assigned by user",
+  "scene_mapping": "third source Tag, approximate per archive README"
+}

@@ -1,0 +1,108 @@
+{
+  "messages": [
+    {
+      "message_event_id": "message:a1cd02db62655e4699a5ea8afd91651c",
+      "session_id": "group-a",
+      "platform_message_id": "m1",
+      "sender_id": "synthetic-user",
+      "event_timestamp": 1700000000.0,
+      "received_timestamp": 1700000005.0,
+      "run_id": "4fe8c9e372284103b8c9dc5c3ddf0a82",
+      "source_type": "inbound",
+      "schema_version": 1
+    }
+  ],
+  "opportunities": [
+    {
+      "opportunity_id": "d70128abd14a447b9fd8eadd2dc1cf18",
+      "session_id": "group-a",
+      "created_at": 1700000010.0,
+      "run_id": "4fe8c9e372284103b8c9dc5c3ddf0a82",
+      "policy_version": "08565f71b2813887d20c9be2a085801d7ebc3768ea38cb88751cceb8fe816323",
+      "source_type": "ordinary_pending",
+      "finalized_at": 1700000010.0,
+      "status": "consumed",
+      "message_event_ids": [
+        "message:a1cd02db62655e4699a5ea8afd91651c"
+      ]
+    }
+  ],
+  "evaluations": [
+    {
+      "evaluation_id": "evaluation:957d8f8d54875c228c704d948c8f9ffe",
+      "opportunity_id": "d70128abd14a447b9fd8eadd2dc1cf18",
+      "evaluation_sequence": 1,
+      "evaluated_at": 1700000010.0,
+      "feature_version": "reply-likelihood-v1",
+      "feature_snapshot": {
+        "status": "available",
+        "values": {
+          "mention_bot": true,
+          "at_other": false,
+          "has_question_mark": true,
+          "placeholder_only": false,
+          "recent_self_ratio": 0.0,
+          "recent_message_count": 1,
+          "seconds_since_bot_message": 3600.0,
+          "pending_count": 1,
+          "owner_verified": false
+        },
+        "message_event_ids": [
+          "message:a1cd02db62655e4699a5ea8afd91651c"
+        ]
+      },
+      "effective_threshold": 0.336,
+      "calculated_probability": 0.8017852886012584,
+      "gate_result": "pass",
+      "decision_reason": "dynamic_trigger",
+      "weights_hash": "f368626d5b47db47801069d0184a38ee25730e8e730b8d42c61cf44935f7fae0",
+      "evidence": {
+        "frequency": 0.5,
+        "delay_seconds": null,
+        "threshold_source": "static_table",
+        "budget": {
+          "should_trigger": true,
+          "probability": 0.8017852886012584,
+          "threshold": 0.336,
+          "expected_replies": 0.8017852886012584,
+          "target_replies": 0.4008926443006292,
+          "actual_replies": 0,
+          "keep_ratio": 0.5
+        },
+        "observation": false,
+        "observation_delay_seconds": null,
+        "contributions": {
+          "intercept": -1.2005,
+          "mention_bot": 1.5852,
+          "at_other": -0.0,
+          "question_mark": 0.4807,
+          "placeholder_only": -0.0,
+          "recent_self_ratio": 0.0,
+          "recent_message_count": -0.0367,
+          "log_seconds_since_bot": 0.4675900079143508,
+          "pending_count": 0.1012,
+          "owner_verified": 0.0
+        },
+        "logit": 1.3974900079143509,
+        "owner_overrides": {
+          "ids": [],
+          "threshold_delta": 0.0
+        },
+        "probability_status": "available",
+        "threshold_status": "available",
+        "weights_status": "available"
+      }
+    }
+  ],
+  "outcomes": [
+    {
+      "opportunity_id": "d70128abd14a447b9fd8eadd2dc1cf18",
+      "gate_result": "pass",
+      "planner_status": "not_observed",
+      "replyer_status": "not_observed",
+      "send_status": "not_observed",
+      "replay_turn_id": null,
+      "linkage_status": "phase_2b_not_connected"
+    }
+  ]
+}

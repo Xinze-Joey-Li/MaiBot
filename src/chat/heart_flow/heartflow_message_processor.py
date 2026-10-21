@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING
 
+import time
 import traceback
 
 from src.chat.heart_flow.heartflow_manager import heartflow_manager
@@ -34,6 +35,8 @@ class HeartFCMessageReceiver:
         Args:
             message: SessionMessage对象，包含原始消息数据和相关信息
         """
+        observation_received_at = time.time()
+        observation_reference = None
         try:
             # 1. 消息解析与初始化
             userinfo = message.message_info.user_info
@@ -59,7 +62,18 @@ class HeartFCMessageReceiver:
 
             from src.services.priority_at_reply_service import priority_at_reply_service
 
-            priority_at_reply = priority_at_reply_service.claim(message)
+            from src.decision_observation.recorder import incoming_runtime, priority_candidate
+
+            if chat is not None:
+                incoming_runtime(chat, message, observation_received_at)
+            from src.decision_observation import recorder as observation
+
+            if observation.store.policy.enabled and chat is not None:
+                priority_at_reply = priority_at_reply_service.claim(message, observation_runtime=chat)
+            else:
+                priority_at_reply = priority_at_reply_service.claim(message)
+            if priority_at_reply and chat is not None:
+                observation_reference = priority_candidate(chat, message)
             await MessageUtils.store_message_to_db_async(message)  # 存储消息到数据库
             from src.services.group_silence_emoji_service import group_silence_emoji_service
 
@@ -68,7 +82,10 @@ class HeartFCMessageReceiver:
 
             tag_extraction_service.notify_message_saved()
             if chat is not None:
-                await chat.register_message(message)
+                if observation_reference is None:
+                    await chat.register_message(message)
+                else:
+                    await chat.register_message(message, observation_reference=observation_reference)
             elif priority_at_reply:
                 raise RuntimeError("@ 独立回复无法解析真实聊天运行时")
             from src.services.memory_flow_service import memory_automation_service
@@ -111,5 +128,8 @@ class HeartFCMessageReceiver:
             )
 
         except Exception as e:
+            from src.decision_observation.recorder import priority_event
+
+            priority_event(None, message, observation_reference, "priority_receiver_interrupted", "unknown", "receiver_exception")
             logger.error(f"消息处理失败: {e}")
             print(traceback.format_exc())

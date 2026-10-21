@@ -36,8 +36,7 @@ def test_wait_pause_resume_completes_original_logical_turn() -> None:
 
     assert runtime._get_pending_wait_tool_call_ids() == {"wait-call-1"}
     runtime._enter_running_state()
-    engine = object.__new__(MaisakaReasoningEngine)
-    engine._runtime = runtime
+    engine = MaisakaReasoningEngine(runtime)
     completed = engine._build_wait_completed_message(has_new_messages=True)
 
     assert completed.tool_call_id == "wait-call-1"

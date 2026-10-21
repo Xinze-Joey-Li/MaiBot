@@ -16,6 +16,7 @@ from openai import APITimeoutError
 from rich.traceback import install
 
 from src.common.logger import get_logger
+from src.decision_observation.reply_flow import request_started
 from src.common.data_models.llm_service_data_models import (
     LLMAudioTranscriptionResult,
     LLMEmbeddingResult,
@@ -1054,6 +1055,7 @@ class LLMOrchestrator:
             model_attempt(active_request, None, task=self.task_name, session_id=self.session_id, started=True)
             from src.decision_replay.replies import generation_request
             await generation_request(active_request, self.task_name, self.session_id)
+            request_started(active_request, self.task_name, self.session_id)
             try:
                 if isinstance(active_request, ResponseRequest):
                     response = await client.get_response(active_request)

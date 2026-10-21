@@ -1,6 +1,6 @@
 # QA-001 修复记录
 
-日期：2026-10-17。本修复随 QQ Agent v0.3.1.2 发布；未操作运行中的机器人。
+日期：2026-10-17。本轮仅修改本地源码、测试和说明，未提交或推送，未操作运行中的机器人。
 
 ## 根因与修复目标
 
@@ -47,10 +47,6 @@ Worker、src.main 模块入口与 WebUI restart 使用不同清理列表；Worke
 4. 所有修改 Python 文件定向 Ruff 和 git diff --check 通过。格式化仅限两个新文件及小型 shutdown 状态文件，没有全仓格式整理。
 
 另有一项既有旧摘要集成测试失败：test_text_to_stream_triggers_real_chat_summary_writeback。测试启用旧摘要写回，却没有关闭新标签系统；当前配置及 v0.3.1.1 的既有逻辑均在标签开启时抑制旧摘要。未改动该测试或产品开关。只在仓库外诊断插件中将该测试的 tag_memory.enabled 设为 False，原测试通过。原样运行的失败不能计为通过。诊断脚本位于 Downloads/MaiBot-QA001-validation-20261017/diagnose_legacy_summary.py。
-
-## v0.3.1.2 发布验证
-
-在基于 v0.3.1.1 的独立工作目录使用 uv sync --frozen 安装锁定依赖，运行关停、启动、会话、独立 @、标签、平台 IO、回放、记忆写回和 WebUI 定向组合：308 passed、1 skipped，另有 19 个 subtests passed。跳过项为 Windows 符号链接权限检查；未将上述旧摘要集成测试计入此组合。定向 Ruff 和 git diff --check 通过。
 
 ## 边界与代价
 

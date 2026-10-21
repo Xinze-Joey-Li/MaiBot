@@ -8,6 +8,7 @@ import json
 import traceback
 
 from src.decision_replay.replies import current_reply, planner_action
+from src.decision_observation import reply_flow
 from src.chat.replyer.replyer_manager import replyer_manager
 from src.chat.utils.utils import is_bot_self
 from src.cli.maisaka_cli_sender import CLI_PLATFORM_NAME, render_cli_message
@@ -331,6 +332,7 @@ def _with_duplicate_target_reply_reminder(
 
 @planner_action
 @direct_reply(_normalize_reply_arguments)
+@reply_flow.observe_tool
 async def handle_tool(
     tool_ctx: BuiltinToolRuntimeContext,
     invocation: ToolInvocation,
@@ -368,6 +370,7 @@ async def handle_tool(
     effective_set_quote = set_quote and enable_reply_quote
 
     if not target_message_id:
+        reply_flow.event(tool_ctx.runtime.session_id, "reply_target", "not_observed", "missing_message_id")
         return tool_ctx.build_failure_result(
             invocation.tool_name,
             "reply 工具需要提供有效的 `msg_id` 参数。",
@@ -375,17 +378,20 @@ async def handle_tool(
 
     target_message = tool_ctx.runtime.find_source_message_by_id(target_message_id)
     if target_message is None:
+        reply_flow.event(tool_ctx.runtime.session_id, "reply_target", "not_observed", "target_not_found")
         return tool_ctx.build_failure_result(
             invocation.tool_name,
             f"未找到要回复的目标消息，msg_id={to_display_message_id(target_message_id)}",
         )
 
     if target_message.message_info.additional_config.get("priority_at_handled") is True:
+        reply_flow.event(tool_ctx.runtime.session_id, "reply_target", "not_applicable", "priority_already_owns_target")
         return tool_ctx.build_failure_result(
             invocation.tool_name,
             "这条 @ 消息由独立优先回复处理，普通 reply 不重复回复该消息。",
         )
 
+    reply_flow.target_checked(tool_ctx.runtime.session_id, target_message)
     extension_execution = ReplyExtensionExecution(
         context=ToolAvailabilityContext(
             session_id=tool_ctx.runtime.session_id,
@@ -398,6 +404,8 @@ async def handle_tool(
     statistics_reply = current_reply.get()
     if statistics_reply is not None:
         extension_execution.reply_id = statistics_reply.reply_id
+    reply_flow.event(tool_ctx.runtime.session_id, "reply_identity", "observed", "existing_extension_reply_id",
+                     reply_id=extension_execution.reply_id)
     if invocation_arguments.get("plugin_options"):
         extension_execution.context.is_group_chat = tool_ctx.runtime.chat_stream.is_group_session
         extension_execution.context.group_id = tool_ctx.runtime.chat_stream.group_id
@@ -406,6 +414,8 @@ async def handle_tool(
         await extension_execution.prepare(invocation_arguments.get("plugin_options", {}))
     except Exception as exc:
         logger.exception(f"{tool_ctx.runtime.log_prefix} 准备插件回复扩展失败: {exc}")
+        reply_flow.event(tool_ctx.runtime.session_id, "reply_extension", "interrupted", "prepare_failed",
+                         error_type=type(exc).__name__)
         return tool_ctx.build_failure_result(
             invocation.tool_name, f"准备插件回复扩展失败：{exc}",
             metadata={"reply_id": extension_execution.reply_id},
@@ -457,9 +467,7 @@ async def handle_tool(
             log_reply=False,
         )
     except Exception as exc:
-        logger.exception(
-            f"{tool_ctx.runtime.log_prefix} 回复生成器执行异常: 目标消息编号={target_message_id} 异常={exc}"
-        )
+        logger.error(f"回复生成器执行异常: error_type={type(exc).__name__}")
         return tool_ctx.build_failure_result(
             invocation.tool_name,
             "生成可见回复时发生异常。",
@@ -471,10 +479,7 @@ async def handle_tool(
     if not reply_text:
         reply_result.monitor_detail = build_reply_monitor_detail(reply_result)
         reply_metadata = _build_monitor_metadata(reply_result, extension_execution.reply_id)
-        logger.warning(
-            f"{tool_ctx.runtime.log_prefix} 回复生成器返回空文本: "
-            f"目标消息编号={target_message_id} 错误信息={reply_result.error_message!r}"
-        )
+        logger.warning("回复生成器返回空文本: status=generation_failed")
         return tool_ctx.build_failure_result(
             invocation.tool_name,
             "生成可见回复失败。",
@@ -498,6 +503,7 @@ async def handle_tool(
 
     if not reply_text:
         reply_result.completion.response_text = ""
+        reply_flow.event(tool_ctx.runtime.session_id, "reply_postprocess", "interrupted", "hook_empty_output")
         reply_result.monitor_detail = build_reply_monitor_detail(reply_result)
         return tool_ctx.build_failure_result(
             invocation.tool_name,
@@ -546,11 +552,15 @@ async def handle_tool(
             extension_execution.ensure_active()
         except Exception as exc:
             logger.exception(f"{tool_ctx.runtime.log_prefix} 插件回复扩展处理失败: {exc}")
+            reply_flow.event(tool_ctx.runtime.session_id, "reply_extension", "interrupted", "transform_failed",
+                             error_type=type(exc).__name__)
             return tool_ctx.build_failure_result(
                 invocation.tool_name, f"插件回复扩展处理失败：{exc}",
                 metadata=_build_monitor_metadata(reply_result, extension_execution.reply_id),
             )
     reply_sequences = [item.sequence for item in reply_items]
+    reply_flow.event(tool_ctx.runtime.session_id, "reply_output", "observed", "after_existing_post_processing",
+                     segment_count=len(reply_sequences))
     reply_segments = [build_visible_text_from_sequence(sequence) for sequence in reply_sequences]
     combined_reply_text = "".join(reply_segments)
     reply_result.completion.response_text = combined_reply_text
@@ -567,6 +577,9 @@ async def handle_tool(
         reply_metadata["reply_extensions"] = list(extension_execution.parameters)
     from src.decision_replay.replies import emit, classify_sequence, component_flags
     for index, sequence in enumerate(reply_sequences):
+        reply_flow.event(tool_ctx.runtime.session_id, "outbound_planned", "observed", "existing_segment_plan",
+                         outbound_id=f"{extension_execution.reply_id}:text:{index}", segment_index=index,
+                         segment_count=len(reply_sequences))
         await emit("message_planned", f"{extension_execution.reply_id}:text:{index}", detail={
             "outbound_message_id": f"{extension_execution.reply_id}:text:{index}",
             "content_type": classify_sequence(sequence), "optional": False, **component_flags(sequence)})

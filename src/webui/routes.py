@@ -235,7 +235,7 @@ async def verify_token(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Token 验证失败: {e}")
+        logger.error(f"Token 验证失败: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Token 验证失败") from e
 
 
@@ -276,7 +276,7 @@ async def check_auth_status(
             "requires_custom_token": token_source == TOKEN_SOURCE_TEMPORARY,
         }
     except Exception as e:
-        logger.error(f"认证检查失败: {e}", exc_info=True)
+        logger.error(f"认证检查失败: {type(e).__name__}")
         return {"authenticated": False}
 
 
@@ -309,7 +309,7 @@ async def update_token(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Token 更新失败: {e}")
+        logger.error(f"Token 更新失败: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Token 更新失败") from e
 
 
@@ -339,7 +339,7 @@ async def regenerate_token(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Token 重新生成失败: {e}")
+        logger.error(f"Token 重新生成失败: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Token 重新生成失败") from e
 
 

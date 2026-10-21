@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional
 import asyncio
 
 from src.decision_replay.replies import platform_send
+from src.decision_observation.reply_flow import driver_event
+from src.decision_observation import delivery as delivery_observation
 from src.services.owner_admin.override_runtime import managed_outbound
 from src.common.shutdown import is_shutdown_requested
 from src.common.logger import get_logger
@@ -584,15 +586,28 @@ class PlatformIOManager:
                 driver_id=driver.driver_id,
                 driver_kind=driver.descriptor.kind,
             )
+            observation_attempt = None
             try:
                 await emit("send_attempt", attempt_id, detail={"attempt_id": attempt_id,
                     "outbound_message_id": outbound_id(message), "content_type": classify(message), "driver_id": driver.driver_id})
-                receipt = await driver.send_message(message=message, route_key=route_key, metadata=metadata)
+                driver_event(message, route_key, attempt_id, "driver_send", "send_attempted", driver.driver_id)
+                observation_attempt = delivery_observation.begin(message, route_key, attempt_id, driver)
+                try:
+                    receipt = await driver.send_message(message=message, route_key=route_key, metadata=metadata)
+                except BaseException as error:
+                    driver_event(message, route_key, attempt_id, "driver_return",
+                                 "interrupted" if isinstance(error, asyncio.CancelledError) else "unknown",
+                                 driver.driver_id, error)
+                    raise
+                else:
+                    driver_event(message, route_key, attempt_id, "driver_return", "send_returned", driver.driver_id,
+                                 result=receipt)
             except BaseException as exc:
                 receipt.error = type(exc).__name__
                 if not isinstance(exc, Exception):
                     raise
             finally:
+                delivery_observation.returned(observation_attempt, receipt)
                 # 先同步结束本地跟踪，再等待回放写入；取消或回放异常不能留下 pending。
                 # UNKNOWN 另存有界记录，避免清理后把可能已送达的消息再次发出。
                 self._outbound_tracker.finish_tracking(receipt)

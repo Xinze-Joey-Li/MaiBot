@@ -131,6 +131,10 @@ class MainSystem:
         init_start_time = time.time()
 
         await config_manager.start_file_watcher()
+        from src.decision_observation.recorder import start as start_decision_observation
+
+        # 在插件接收消息前挂好采集策略；默认关闭时不会创建观察数据库。
+        await start_decision_observation()
         from src.services.owner_admin.overrides import override_manager
         from src.services.owner_admin.override_runtime import runtime_changed
 

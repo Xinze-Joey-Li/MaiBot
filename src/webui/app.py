@@ -25,6 +25,8 @@ from src.webui.version_compatibility import (
     read_local_webui_version,
 )
 
+from .observation_read import ObservationReadMiddleware
+
 logger = get_logger("webui.app")
 
 _DASHBOARD_PACKAGE_NAME = "maibot-dashboard"
@@ -213,6 +215,8 @@ def create_app(
     _setup_anti_crawler(app)
     _setup_cors(app, port)
     app.add_middleware(TextGZipMiddleware)
+    # Newest middleware is outermost: recheck Observation reads after gzip buffering.
+    app.add_middleware(ObservationReadMiddleware)
     _register_api_routes(app)
     _setup_robots_txt(app)
 
@@ -397,14 +401,14 @@ def _resolve_static_path() -> Path | None:
 
 
 def show_access_token():
-    """显示 WebUI Access Token（供启动时调用）"""
+    """显示 WebUI 凭据就绪状态（供启动时调用，不记录凭据）"""
     try:
         from src.webui.core import get_token_manager
 
         token_manager = get_token_manager()
-        current_token = token_manager.get_token()
+        token_manager.get_token()
         if token_manager.should_show_startup_token():
-            logger.info(t("startup.webui_access_token", token=current_token))
-            logger.info(t("startup.webui_access_token_login_hint"))
+            logger.info("WebUI 临时登录凭据已就绪，请从本机 data/webui.json 获取")
+            # 不再通过运行日志分发登录凭据。
     except Exception as e:
-        logger.error(t("startup.webui_access_token_failed", error=e))
+        logger.error(t("startup.webui_access_token_failed", error=type(e).__name__))

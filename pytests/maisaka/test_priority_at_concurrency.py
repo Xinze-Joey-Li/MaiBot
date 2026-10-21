@@ -12,7 +12,8 @@ from src.services.priority_at_reply_service import PriorityAtReplyService
 
 
 def message(index, group="group"):
-    return SimpleNamespace(session_id=group, message_id=str(index))
+    return SimpleNamespace(session_id=group, message_id=str(index), platform="qq",
+                           message_info=SimpleNamespace(additional_config={"account_id": "bot"}))
 
 
 async def drain(service):
