@@ -108,7 +108,7 @@ def test_annotation_review_route_auth_scope_and_exact_target(fixture):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from src.webui.dependencies import require_auth
-    from src.webui.routers.decision_annotations import annotation_service, router
+    from src.webui.routers.decision_annotations import annotation_service, review_bot_accounts, router
     from src.webui.routers.decision_observation import reader
     from src.decision_observation.annotation_models import AnnotationError
 
@@ -121,6 +121,7 @@ def test_annotation_review_route_auth_scope_and_exact_target(fixture):
     app.include_router(router)
     app.dependency_overrides[annotation_service] = Service
     app.dependency_overrides[reader] = lambda: fixture.reader
+    app.dependency_overrides[review_bot_accounts] = lambda: frozenset()
     url = f"/api/webui/decision-observation/annotations/{fixture.oid}/review-context"
     with TestClient(app) as client:
         query = {"target_type": "evaluation", "evaluation_id": fixture.eid}

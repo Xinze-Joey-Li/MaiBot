@@ -200,6 +200,92 @@ async function saved() {
   await screen.findByText(/保存已确认/)
 }
 
+describe('predecision bot history rendering', () => {
+  const bot = {
+    message_event_id: 'bot_history:synthetic',
+    membership: 'bot_history_reference',
+    status: 'available',
+    name: '大肥鱼',
+    is_bot: true,
+    text: '合成机器人历史正文\n保留换行',
+    event_timestamp: 85,
+    time_basis: 'platform_confirmation',
+  }
+  it('uses a blue whole-message surface and inline badge while preserving gray peers and yellow targets', async () => {
+    contexts = {
+      ...contexts,
+      bot_history_status: 'available',
+      total: 3,
+      items: [...(contexts.items as object[]), bot],
+    }
+    await open()
+    const article = screen.getByText('合成机器人历史正文 保留换行').closest('article')!
+    expect(article).toHaveClass(
+      'bg-blue-50',
+      'dark:bg-blue-950/30',
+      'text-blue-950',
+      'dark:text-blue-100'
+    )
+    expect(article).toHaveAttribute('data-review-bot', 'true')
+    expect(within(article).getByText('机器人', { exact: true })).toHaveClass(
+      'rounded',
+      'text-[10px]'
+    )
+    expect(article).toHaveTextContent('大肥鱼')
+    expect(article).toHaveTextContent('机器人历史发言 · 决策前参考')
+    expect(article).toHaveTextContent('确认于')
+    expect(within(article).getByText(/合成机器人历史正文/)).toHaveClass(
+      'whitespace-pre-wrap',
+      'break-words'
+    )
+    expect(screen.getByText('合成参考消息').closest('article')).toHaveClass('bg-muted')
+    expect(screen.getByText('合成参考消息').closest('article')).not.toHaveAttribute(
+      'data-review-bot'
+    )
+    const target = screen
+      .getByRole('region', { name: '人工批改详情' })
+      .querySelector('[data-review-target]')!
+    expect(target).toHaveClass('bg-amber-50')
+    expect(target).not.toHaveClass('bg-blue-50')
+    expect(screen.getByText(/机器人历史消息用于辅助理解群聊/)).toBeVisible()
+  })
+  it('keeps the yellow target semantics even if its verified sender is a bot', async () => {
+    const target = {
+      ...bot,
+      message_event_id: 'm1',
+      membership: 'evaluation_member',
+      text: '合成机器人目标',
+    }
+    contexts = { ...contexts, target_items: [target], items: [target] }
+    await open()
+    const article = screen
+      .getByRole('region', { name: '人工批改详情' })
+      .querySelector('[data-review-target]')!
+    expect(article).toHaveClass('bg-amber-50')
+    expect(article).not.toHaveClass('bg-blue-50')
+    expect(within(article as HTMLElement).getByText('机器人', { exact: true })).toBeInTheDocument()
+  })
+  it.each(['body_unavailable', 'available'])(
+    'shows a faithful placeholder for missing or empty bot text: %s',
+    async (status) => {
+      contexts = { ...contexts, items: [{ ...bot, status, text: '' }] }
+      await open()
+      expect(screen.getByText('历史发言正文不可恢复')).toBeVisible()
+    }
+  )
+  it.each(['identity_unavailable', 'identity_missing', 'read_limit', 'send_evidence_unavailable'])(
+    'makes incomplete history explicit without failing the editor: %s',
+    async (bot_history_status) => {
+      contexts = { ...contexts, bot_history_status }
+      await open()
+      expect(screen.getByText(/未显示不代表没有历史发言/)).toBeVisible()
+      expect(screen.queryByText('机器人', { exact: true })).not.toBeInTheDocument()
+      choose('无法判断')
+      await saved()
+    }
+  )
+})
+
 describe('C phase semantics without changing human labels', () => {
   it('shows Gate pass and Planner wait independently after B, then saves a contrary human judgment', async () => {
     contexts = {

@@ -409,7 +409,7 @@ class DashboardReader:
 
     @authorized_read
     def context(self, opportunity_id: str, evaluation_id: str, *, page: int = 1, page_size: int = 25,
-                annotation_view: bool = False) -> Optional[dict]:
+                annotation_view: bool = False, bot_accounts: Optional[FrozenSet[str]] = frozenset()) -> Optional[dict]:
         if not self.path.exists():
             return None
         if not 1 <= page <= 10000 or not 1 <= page_size <= 100:
@@ -495,10 +495,42 @@ class DashboardReader:
                     result["context_status"] = "chat_table_unavailable"
                     return result
                 if annotation_view:
+                    from .review_history import bot_history
                     from .review_presentation import ReviewPrivacy
 
-                    privacy = ReviewPrivacy(chat, row["session_id"], opportunity_id)
+                    accounts = bot_accounts if bot_accounts is not None else frozenset()
+                    privacy = ReviewPrivacy(chat, row["session_id"], opportunity_id, accounts)
+                    result["limitations"][1] = (
+                        "群友参考消息仅限本会话有可靠接收时间且不晚于评估的观察记录；"
+                        "机器人历史发言另以决策前平台确认恢复，不代表模型输入。"
+                    )
                     result["privacy_replacements"] = privacy.replacements
+                    history, history_status = bot_history(connection, chat, row["session_id"], row["evaluated_at"],
+                                                     accounts, predicate, args)
+                    result["bot_history_status"] = ("identity_unavailable" if bot_accounts is None else
+                                                    "identity_missing" if not accounts else
+                                                    history_status)
+                    if history:
+                        # All omitted observation rows precede this page even if
+                        # every bot row sorts before them. Read a bounded overlap,
+                        # merge once, then paginate the unified set (no page-local merge).
+                        start = (page - 1) * page_size
+                        base = max(0, start - len(history))
+                        observed_page = connection.execute(
+                            "SELECT * FROM message_events WHERE " + predicate
+                            + " ORDER BY COALESCE(received_timestamp,event_timestamp),message_event_id LIMIT ? OFFSET ?",
+                            [*args, page_size + len(history), base],
+                        ).fetchall()
+                        merged = [dict(message) for message in observed_page] + history
+                        merged.sort(key=lambda message: (message["received_timestamp"] if message["received_timestamp"]
+                                                         is not None else message["event_timestamp"],
+                                                         message["message_event_id"]))
+                        messages = merged[start - base:start - base + page_size]
+                        result["total"] += len(history)
+                    result["limitations"].append(
+                        "机器人历史发言仅使用10分钟内、决策前已记录的平台确认；确认时刻不是精确发送时刻。"
+                        "正文来自当前聊天库，不证明决策前已入库、未被修改或Planner已读取；相同时间不证明因果先后。"
+                    )
                     result["target_items"] = []
                     # Fetch snapshot candidates separately so the target remains visible
                     # even when its ordinary context page has not been opened.
@@ -511,6 +543,11 @@ class DashboardReader:
                 else:
                     messages = [(message, False) for message in messages]
                 for message, target_preview in messages:
+                    if annotation_view and isinstance(message, dict) and message.get("_history"):
+                        item = {key: value for key, value in message.items() if key not in {"_history", "received_timestamp"}}
+                        item["text"] = privacy.text(item["text"])
+                        result["items"].append(item)
+                        continue
                     # Exact session/platform ID identity only. Duplicates are ambiguous, never newest-row guesses.
                     matches = chat.execute(
                         "SELECT timestamp,user_id,user_nickname,user_cardname,processed_plain_text,is_at,is_mentioned,reply_to FROM mai_messages WHERE session_id=? AND platform='qq' AND message_id=? LIMIT 2",
@@ -545,6 +582,7 @@ class DashboardReader:
                             }
                         )
                     if annotation_view:
+                        item["is_bot"] = len(matches) == 1 and matches[0]["user_id"] in accounts
                         item["name"] = privacy.sender(
                             matches[0]["user_id"] if len(matches) == 1 else None, message["message_event_id"]
                         )

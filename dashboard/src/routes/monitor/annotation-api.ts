@@ -71,6 +71,8 @@ export type ReviewContext = {
     membership: string
     status: string
     name?: string
+    is_bot?: boolean
+    time_basis?: string
     text?: string
     text_truncated?: boolean
     event_timestamp: number
@@ -81,6 +83,7 @@ export type ReviewContext = {
   unavailable_message_event_ids?: string[]
   context_status: string
   limitations: string[]
+  bot_history_status?: string
   target_items?: ReviewContext['items']
   privacy_replacements?: Record<string, string>
   machine?: {

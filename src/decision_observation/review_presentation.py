@@ -1,6 +1,6 @@
 """Display-only identities for the annotation workbench; never writes chat data."""
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, FrozenSet, List, Optional, Tuple
 import hashlib
 import json
 import re
@@ -142,7 +142,8 @@ def machine_summary(connection: sqlite3.Connection, opportunity_id: str, evaluat
 
 
 class ReviewPrivacy:
-    def __init__(self, chat: sqlite3.Connection, session_id: str, opportunity_id: str) -> None:
+    def __init__(self, chat: sqlite3.Connection, session_id: str, opportunity_id: str,
+                 bot_accounts: FrozenSet[str] = frozenset()) -> None:
         self.scope = session_id + ":" + opportunity_id
         self.aliases: Dict[str, str] = {}
         names = {}
@@ -152,18 +153,22 @@ class ReviewPrivacy:
             "SELECT DISTINCT user_id,user_nickname,user_cardname FROM mai_messages WHERE session_id=? AND platform='qq'",
             (session_id,),
         ).fetchall()
-        users = sorted({str(row["user_id"]) for row in rows if row["user_id"]})
+        users = sorted({str(row["user_id"]) for row in rows if row["user_id"]} | set(bot_accounts))
         for uid in users:
             self.aliases[uid] = "群友 " + hashlib.sha256((self.scope + ":user:" + uid).encode()).hexdigest()[:10].upper()
         # Explicit collision detection rather than assuming a shortened digest is unique.
         if len(set(self.aliases.values())) != len(users):
             self.aliases = {uid: "群友 " + hashlib.sha256((self.scope + ":user:" + uid).encode()).hexdigest().upper()
                             for uid in users}
+        for uid in bot_accounts:
+            self.aliases[uid] = "大肥鱼"
         for row in rows:
             alias = self.aliases.get(str(row["user_id"]), "群友（身份缺失）")
             for name in (row["user_nickname"], row["user_cardname"], row["user_id"]):
                 if name:
                     names.setdefault(str(name), set()).add(alias)
+        for uid in bot_accounts:
+            names.setdefault(uid, set()).add("大肥鱼")
         self.replacements = {
             name: next(iter(aliases)) if len(aliases) == 1 else "群友（同名，身份不确定）"
             for name, aliases in names.items()

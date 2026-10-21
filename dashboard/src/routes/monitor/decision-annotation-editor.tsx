@@ -282,7 +282,13 @@ export function AnnotationEditor({
                       {item.text || '正文为空 / 不可恢复'}
                     </p>
                     <p className="text-xs">
-                      发送者：{item.name ?? '未知发送者'} · 时间：{date(item.event_timestamp)}
+                      发送者：
+                      {item.is_bot && (
+                        <span className="mr-1 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-800 dark:bg-blue-900 dark:text-blue-100">
+                          机器人
+                        </span>
+                      )}
+                      {item.name ?? '未知发送者'} · 时间：{date(item.event_timestamp)}
                     </p>
                     {item.text_truncated && <p className="text-xs">正文已截断。</p>}
                   </div>
@@ -309,17 +315,40 @@ export function AnnotationEditor({
               {context.unavailable_message_event_ids?.length ? (
                 <p>缺失关联消息：{context.unavailable_message_event_ids.length} 条</p>
               ) : null}
+              {context.bot_history_status && context.bot_history_status !== 'available' && (
+                <p role="status" className="text-muted-foreground text-xs">
+                  {context.bot_history_status === 'read_limit'
+                    ? '机器人历史发言超过安全读取上限，本次未补入；未显示不代表没有历史发言。'
+                    : '机器人身份或发送时间证据不可用，本次未补入机器人历史；未显示不代表没有历史发言。'}
+                </p>
+              )}
+              {context.items.some((item) => item.membership === 'bot_history_reference') && (
+                <p className="text-muted-foreground text-xs">
+                  机器人历史消息用于辅助理解群聊，不代表已确认属于当时的完整模型输入；时间显示为平台确认时刻。
+                </p>
+              )}
               {context.items.map((item, index) => (
                 <article
                   className={
                     targets.ids.has(item.message_event_id)
                       ? 'rounded-md border border-amber-400 bg-amber-50 p-3 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-100'
-                      : 'bg-muted rounded-md p-3 text-sm'
+                      : item.is_bot
+                        ? 'rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-100'
+                        : 'bg-muted rounded-md p-3 text-sm'
                   }
                   data-review-target={targets.ids.has(item.message_event_id) || undefined}
+                  data-review-bot={item.is_bot || undefined}
                   key={`${item.membership}:${item.message_event_id}:${index}`}
                 >
                   <p className="text-muted-foreground text-xs">
+                    {item.is_bot && (
+                      <>
+                        <span className="mr-1 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-800 dark:bg-blue-900 dark:text-blue-100">
+                          机器人
+                        </span>
+                        大肥鱼 ·{' '}
+                      </>
+                    )}
                     {targets.ids.has(item.message_event_id)
                       ? targets.items.length === 1
                         ? '目标消息'
@@ -328,13 +357,19 @@ export function AnnotationEditor({
                         ? '决策前消息'
                         : item.membership === 'reference_only'
                           ? '重建参考上下文'
-                          : '回复机会关联消息'}{' '}
-                    · {date(item.event_timestamp)} · {item.name ?? '未知发送者'}
+                          : item.membership === 'bot_history_reference'
+                            ? '机器人历史发言 · 决策前参考'
+                            : '回复机会关联消息'}{' '}
+                    · {item.time_basis === 'platform_confirmation' ? '确认于 ' : ''}
+                    {date(item.event_timestamp)}
+                    {!item.is_bot && <> · {item.name ?? '未知发送者'}</>}
                   </p>
                   <p className="mt-2 break-words whitespace-pre-wrap">
                     {item.status === 'available'
-                      ? item.text || '正文为空 / 不可恢复'
-                      : '正文缺失或身份有歧义'}
+                      ? item.text || (item.is_bot ? '历史发言正文不可恢复' : '正文为空 / 不可恢复')
+                      : item.is_bot
+                        ? '历史发言正文不可恢复'
+                        : '正文缺失或身份有歧义'}
                   </p>
                   {item.text_truncated && <p>正文已截断。</p>}
                 </article>

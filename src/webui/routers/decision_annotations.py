@@ -1,7 +1,7 @@
 """Authenticated human judgments; intentionally no Dashboard editing UI."""
 
 from pathlib import Path
-from typing import Annotated, Literal, Optional
+from typing import Annotated, FrozenSet, Literal, Optional
 import sqlite3
 import time
 
@@ -42,18 +42,34 @@ def annotation_service() -> AnnotationService:
 Service = Annotated[AnnotationService, Depends(annotation_service)]
 
 
+def review_bot_accounts() -> Optional[FrozenSet[str]]:
+    try:
+        from src.services.bot_account_service import get_bot_accounts
+
+        return frozenset(get_bot_accounts("qq"))
+    except Exception:
+        # Identity lookup is a display capability. Report its unavailability in
+        # the projection; never identify by nickname or fall back to raw accounts.
+        return None
+
+
+BotAccounts = Annotated[Optional[FrozenSet[str]], Depends(review_bot_accounts)]
+
+
 @router.get("/annotations/{opportunity_id}/review-context")
 def review_context(
     opportunity_id: str,
     service: Service,
     read_service: Reader,
+    bot_accounts: BotAccounts,
     target_type: Literal["evaluation", "opportunity"],
     evaluation_id: Optional[str] = Query(None, min_length=1, max_length=255),
     page: int = Query(1, ge=1, le=10000),
 ):
     # The original target check and the reader's authorization epoch both apply.
     invoke(service.current, opportunity_id, target_type, evaluation_id)
-    result = read_invoke(read_service.context, opportunity_id, evaluation_id or "", page=page, annotation_view=True)
+    result = read_invoke(read_service.context, opportunity_id, evaluation_id or "", page=page, annotation_view=True,
+                         bot_accounts=bot_accounts)
     if result is None:
         raise HTTPException(404, "批改目标不存在或不在授权范围")
     return result
