@@ -215,7 +215,22 @@ const plannerMonitorRoute = createRoute({
 const decisionReplayRoute = createRoute({
   getParentRoute: () => protectedRoute,
   path: '/decision-replay',
+  validateSearch: (search: Record<string, unknown>): { observationTurn?: string; observationSession?: string } => ({
+    observationTurn: typeof search.observationTurn === 'string' ? search.observationTurn : undefined,
+    observationSession: typeof search.observationSession === 'string' ? search.observationSession : undefined,
+  }),
   component: lazyRouteComponent(() => import('./routes/monitor/decision-replay'), 'DecisionReplayPage'),
+})
+
+const decisionObservationRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: '/decision-observation',
+  component: lazyRouteComponent(() => import('./routes/monitor/decision-observation'), 'DecisionObservationPage'),
+})
+const decisionObservationDetailRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: '/decision-observation/$opportunityId',
+  component: lazyRouteComponent(() => import('./routes/monitor/decision-observation'), 'DecisionObservationDetailPage'),
 })
 
 // 本地聊天室路由
@@ -412,6 +427,8 @@ const routeTree = rootRoute.addChildren([
     reasoningProcessRoute,
     plannerMonitorRoute,
     decisionReplayRoute,
+    decisionObservationRoute,
+    decisionObservationDetailRoute,
     chatManagementRoute,
     chatRoute,
     settingsRoute,

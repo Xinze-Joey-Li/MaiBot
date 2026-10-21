@@ -38,7 +38,7 @@ def generate_ws_token(session_token: str) -> str:
     _cleanup_expired_ws_tokens()
     temp_token = secrets.token_urlsafe(32)
     _ws_temp_tokens[temp_token] = (time.time() + _WS_TOKEN_EXPIRE_SECONDS, session_token)
-    logger.debug(f"生成 WS 临时 token: {temp_token[:8]}... 有效期 {_WS_TOKEN_EXPIRE_SECONDS}s")
+    logger.debug(f"生成 WS 临时 token, 有效期 {_WS_TOKEN_EXPIRE_SECONDS}s")
     return temp_token
 
 
@@ -53,22 +53,22 @@ def verify_ws_token(temp_token: str) -> bool:
     """
     _cleanup_expired_ws_tokens()
     if temp_token not in _ws_temp_tokens:
-        logger.warning(f"WS token 不存在: {temp_token[:8]}...")
+        logger.warning("WS token 不存在")
         return False
     expire_time, session_token = _ws_temp_tokens[temp_token]
     if time.time() > expire_time:
         del _ws_temp_tokens[temp_token]
-        logger.warning(f"WS token 已过期: {temp_token[:8]}...")
+        logger.warning("WS token 已过期")
         return False
     # 验证原始 session token 仍然有效
     token_manager = get_token_manager()
     if not token_manager.verify_token(session_token):
         del _ws_temp_tokens[temp_token]
-        logger.warning(f"WS token 关联的 session 已失效: {temp_token[:8]}...")
+        logger.warning("WS token 关联的 session 已失效")
         return False
     # 消费 token（一次性使用）
     del _ws_temp_tokens[temp_token]
-    logger.debug(f"WS token 验证成功: {temp_token[:8]}...")
+    logger.debug("WS token 验证成功")
     return True
 
 

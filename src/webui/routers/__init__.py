@@ -20,6 +20,8 @@ def get_all_routers() -> List[APIRouter]:
     from src.webui.routers.tag_memory import router as tag_memory_router
     from src.webui.routes import router as main_router
     from src.webui.routers.decision_replay import router as decision_replay_router
+    from src.webui.routers.decision_observation import router as decision_observation_router
+    from src.webui.routers.decision_annotations import router as decision_annotations_router
 
     return [
         main_router,
@@ -28,6 +30,8 @@ def get_all_routers() -> List[APIRouter]:
         chat_router,
         tag_memory_router,
         decision_replay_router,
+        decision_observation_router,
+        decision_annotations_router,
     ]
 
 

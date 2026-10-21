@@ -87,11 +87,11 @@ def set_auth_cookie(response: Response, token: str, request: Optional[Request] =
         forwarded_proto = request.headers.get("x-forwarded-proto", "").lower()
         if forwarded_proto:
             is_https = forwarded_proto == "https"
-            logger.debug(f"检测到 X-Forwarded-Proto: {forwarded_proto}, is_https={is_https}")
+            logger.debug(f"检测到 X-Forwarded-Proto, is_https={is_https}")
         else:
             # 检查 request.url.scheme
             is_https = request.url.scheme == "https"
-            logger.debug(f"检测到 scheme: {request.url.scheme}, is_https={is_https}")
+            logger.debug(f"检测到请求协议, is_https={is_https}")
 
         # 如果是 HTTP 连接，强制禁用 secure 标志
         if not is_https and is_secure:
@@ -114,10 +114,8 @@ def set_auth_cookie(response: Response, token: str, request: Optional[Request] =
         path="/",  # 确保 Cookie 在所有路径下可用
     )
 
-    logger.info(
-        f"已设置认证 Cookie: {token[:8]}... (secure={is_secure}, samesite=lax, httponly=True, path=/, max_age={COOKIE_MAX_AGE})"
-    )
-    logger.debug(f"完整 token 前缀: {token[:20]}...")
+    logger.info(f"已设置认证 Cookie (secure={is_secure}, samesite=lax, httponly=True, path=/, max_age={COOKIE_MAX_AGE})")
+    # 凭据及任何片段均不进入日志。
 
 
 def clear_auth_cookie(response: Response) -> None:

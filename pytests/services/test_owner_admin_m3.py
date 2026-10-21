@@ -3,6 +3,7 @@
 from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
+from uuid import uuid4
 import asyncio
 import sqlite3
 import time
@@ -59,7 +60,8 @@ async def environment(tmp_path, monkeypatch):
 
 
 async def send(router, command, mid=None, **kwargs):
-    return await router.handle_message(incoming(command, mid=mid or str(time.monotonic_ns()), **kwargs))
+    # Windows monotonic_ns may have coarse resolution; separate mock messages need unique IDs.
+    return await router.handle_message(incoming(command, mid=mid or uuid4().hex, **kwargs))
 
 
 async def add(router, content="我喜欢红茶"):

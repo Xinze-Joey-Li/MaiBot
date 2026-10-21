@@ -1,0 +1,1143 @@
+{
+  "messages": [
+    {
+      "message_event_id": "message:0b8660fb8a5e59118f66016baf1732a8",
+      "session_id": "group-a",
+      "platform_message_id": "redelivered",
+      "sender_id": "synthetic-user",
+      "event_timestamp": 1700000000.0,
+      "received_timestamp": 1792486291.075711,
+      "run_id": "608c6a3e09a44d8f84b76501e42ca3ae",
+      "source_type": "inbound",
+      "schema_version": 3
+    },
+    {
+      "message_event_id": "message:6de6e41294d351d0b12274d3e00fe0fc",
+      "session_id": "group-a",
+      "platform_message_id": "queued",
+      "sender_id": "synthetic-user",
+      "event_timestamp": 1700000000.0,
+      "received_timestamp": 1792486291.075711,
+      "run_id": "608c6a3e09a44d8f84b76501e42ca3ae",
+      "source_type": "inbound",
+      "schema_version": 3
+    },
+    {
+      "message_event_id": "message:7a2b4537474d5a0586ee286771468c0d",
+      "session_id": "group-a",
+      "platform_message_id": "active",
+      "sender_id": "synthetic-user",
+      "event_timestamp": 1700000000.0,
+      "received_timestamp": 1792486291.0747113,
+      "run_id": "608c6a3e09a44d8f84b76501e42ca3ae",
+      "source_type": "inbound",
+      "schema_version": 3
+    }
+  ],
+  "opportunities": [
+    {
+      "opportunity_id": "61420a595a62439294e99bb70b8e4987",
+      "session_id": "group-a",
+      "created_at": 1792486291.0767121,
+      "run_id": "608c6a3e09a44d8f84b76501e42ca3ae",
+      "policy_version": "26e36f3fc80fffddbf65b85767012c087337e3e4b18a30cbde3b5c8bbb51de1b",
+      "source_type": "ordinary_pending",
+      "finalized_at": 1700000010.0,
+      "status": "consumed",
+      "account_id": null,
+      "message_event_ids": [
+        "message:0b8660fb8a5e59118f66016baf1732a8"
+      ],
+      "evaluation_count": 1,
+      "evaluations_truncated": false,
+      "incoming_transfer_ids": [
+        "priority_fallback:6c5ffe40ca7d56eb9097e3347c86b71a"
+      ],
+      "execution_event_count": 10,
+      "execution_events_truncated": false
+    },
+    {
+      "opportunity_id": "priority_opportunity:8d4a95eb79eb50ee870049b3e9a7adbf",
+      "session_id": "group-a",
+      "created_at": 1792486291.0767121,
+      "run_id": "608c6a3e09a44d8f84b76501e42ca3ae",
+      "policy_version": "26e36f3fc80fffddbf65b85767012c087337e3e4b18a30cbde3b5c8bbb51de1b",
+      "source_type": "priority_at",
+      "finalized_at": null,
+      "status": "observed",
+      "account_id": "bot",
+      "message_event_ids": [
+        "message:0b8660fb8a5e59118f66016baf1732a8"
+      ],
+      "evaluation_count": 0,
+      "evaluations_truncated": false,
+      "incoming_transfer_ids": [],
+      "execution_event_count": 16,
+      "execution_events_truncated": false
+    },
+    {
+      "opportunity_id": "priority_opportunity:8b96f8a3d2005f64a3f54d3633dd91af",
+      "session_id": "group-a",
+      "created_at": 1792486291.075711,
+      "run_id": "608c6a3e09a44d8f84b76501e42ca3ae",
+      "policy_version": "26e36f3fc80fffddbf65b85767012c087337e3e4b18a30cbde3b5c8bbb51de1b",
+      "source_type": "priority_at",
+      "finalized_at": null,
+      "status": "observed",
+      "account_id": "bot",
+      "message_event_ids": [
+        "message:6de6e41294d351d0b12274d3e00fe0fc"
+      ],
+      "evaluation_count": 0,
+      "evaluations_truncated": false,
+      "incoming_transfer_ids": [],
+      "execution_event_count": 11,
+      "execution_events_truncated": false
+    },
+    {
+      "opportunity_id": "priority_opportunity:bcdb7230e35554c3adbcabcc9b718427",
+      "session_id": "group-a",
+      "created_at": 1792486291.0747113,
+      "run_id": "608c6a3e09a44d8f84b76501e42ca3ae",
+      "policy_version": "26e36f3fc80fffddbf65b85767012c087337e3e4b18a30cbde3b5c8bbb51de1b",
+      "source_type": "priority_at",
+      "finalized_at": null,
+      "status": "observed",
+      "account_id": "bot",
+      "message_event_ids": [
+        "message:7a2b4537474d5a0586ee286771468c0d"
+      ],
+      "evaluation_count": 0,
+      "evaluations_truncated": false,
+      "incoming_transfer_ids": [],
+      "execution_event_count": 11,
+      "execution_events_truncated": false
+    }
+  ],
+  "evaluations": [
+    {
+      "evaluation_id": "evaluation:dd41e1374afb5836805f986ffc6e8cb8",
+      "opportunity_id": "61420a595a62439294e99bb70b8e4987",
+      "evaluation_sequence": 1,
+      "evaluated_at": 1700000010.0,
+      "feature_version": "not_calculated",
+      "feature_snapshot": {
+        "status": "not_calculated",
+        "values": null,
+        "message_event_ids": [
+          "message:0b8660fb8a5e59118f66016baf1732a8"
+        ]
+      },
+      "effective_threshold": null,
+      "calculated_probability": null,
+      "gate_result": "pass",
+      "decision_reason": "priority_fallback_forced_trigger",
+      "weights_hash": null,
+      "evidence": {
+        "frequency": 0.5,
+        "probability_status": "not_calculated",
+        "threshold_status": "not_calculated",
+        "weights_status": "not_calculated"
+      }
+    }
+  ],
+  "outcomes": [
+    {
+      "opportunity_id": "61420a595a62439294e99bb70b8e4987",
+      "gate_result": "pass",
+      "planner_status": "started",
+      "replyer_status": "not_observed",
+      "send_status": "not_observed",
+      "replay_turn_id": null,
+      "linkage_status": "explicit_events"
+    },
+    {
+      "opportunity_id": "priority_opportunity:8d4a95eb79eb50ee870049b3e9a7adbf",
+      "gate_result": "not_observed",
+      "planner_status": "not_applicable",
+      "replyer_status": "entry_observed",
+      "send_status": "not_observed",
+      "replay_turn_id": null,
+      "linkage_status": "explicit_events"
+    },
+    {
+      "opportunity_id": "priority_opportunity:8b96f8a3d2005f64a3f54d3633dd91af",
+      "gate_result": "not_observed",
+      "planner_status": "not_applicable",
+      "replyer_status": "entry_observed",
+      "send_status": "not_observed",
+      "replay_turn_id": null,
+      "linkage_status": "explicit_events"
+    },
+    {
+      "opportunity_id": "priority_opportunity:bcdb7230e35554c3adbcabcc9b718427",
+      "gate_result": "not_observed",
+      "planner_status": "not_applicable",
+      "replyer_status": "entry_observed",
+      "send_status": "not_observed",
+      "replay_turn_id": null,
+      "linkage_status": "explicit_events"
+    }
+  ],
+  "execution_events": [
+    {
+      "event_id": "1a54df2d91ff4a7bad84899b46be7011",
+      "opportunity_id": "61420a595a62439294e99bb70b8e4987",
+      "evaluation_id": "evaluation:dd41e1374afb5836805f986ffc6e8cb8",
+      "execution_id": "",
+      "occurred_at": 1700000010.0,
+      "stage": "enqueued",
+      "status": "enqueued",
+      "reason": "ordinary_gate_pass",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "not_observed",
+      "message_event_ids": [],
+      "tool_names": [],
+      "link_source": "gate_dispatch",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "99fe540a88ab490eab574944868cd71d",
+      "opportunity_id": "61420a595a62439294e99bb70b8e4987",
+      "evaluation_id": null,
+      "execution_id": "",
+      "occurred_at": 1700000010.0,
+      "stage": "consumed",
+      "status": "consumed",
+      "reason": "pending_batch",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "not_observed",
+      "message_event_ids": [
+        "message:0b8660fb8a5e59118f66016baf1732a8"
+      ],
+      "tool_names": [],
+      "link_source": "consumed_without_dispatch",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "3f8b59168f7e40589d69ab69312d0736",
+      "opportunity_id": "61420a595a62439294e99bb70b8e4987",
+      "evaluation_id": "evaluation:dd41e1374afb5836805f986ffc6e8cb8",
+      "execution_id": "85b9bf9eb1694ee1ba1e8f89d28e6751",
+      "occurred_at": 1700000010.0,
+      "stage": "batch_linked",
+      "status": "observed",
+      "reason": "actual_consumed_batch",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:0b8660fb8a5e59118f66016baf1732a8"
+      ],
+      "tool_names": [],
+      "link_source": "gate_dispatch",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "1481b871245849beba6bfab0b6df92d9",
+      "opportunity_id": "61420a595a62439294e99bb70b8e4987",
+      "evaluation_id": "evaluation:dd41e1374afb5836805f986ffc6e8cb8",
+      "execution_id": "85b9bf9eb1694ee1ba1e8f89d28e6751",
+      "occurred_at": 1700000010.0,
+      "stage": "turn_bound",
+      "status": "observed",
+      "reason": "engine_turn_identity",
+      "logical_turn_id": "e92aa50dcfac4c858c550382e221ae1f",
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [],
+      "tool_names": [],
+      "link_source": "gate_dispatch",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "98cc7c1a110d47c1bacc15f35f513a93",
+      "opportunity_id": "61420a595a62439294e99bb70b8e4987",
+      "evaluation_id": "evaluation:dd41e1374afb5836805f986ffc6e8cb8",
+      "execution_id": "85b9bf9eb1694ee1ba1e8f89d28e6751",
+      "occurred_at": 1700000010.0,
+      "stage": "cycle_bound",
+      "status": "observed",
+      "reason": "internal_cycle",
+      "logical_turn_id": "e92aa50dcfac4c858c550382e221ae1f",
+      "cycle_id": "1",
+      "replay_status": "disabled",
+      "message_event_ids": [],
+      "tool_names": [],
+      "link_source": "gate_dispatch",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "ad8341e331db4a398c98adbfb77c9d2c",
+      "opportunity_id": "61420a595a62439294e99bb70b8e4987",
+      "evaluation_id": "evaluation:dd41e1374afb5836805f986ffc6e8cb8",
+      "execution_id": "85b9bf9eb1694ee1ba1e8f89d28e6751",
+      "occurred_at": 1700000010.0,
+      "stage": "planner_started",
+      "status": "started",
+      "reason": "request_entered",
+      "logical_turn_id": "e92aa50dcfac4c858c550382e221ae1f",
+      "cycle_id": "1",
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:0b8660fb8a5e59118f66016baf1732a8"
+      ],
+      "tool_names": [],
+      "link_source": "gate_dispatch",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "5533419f7383459f9c3dee5a431b5de1",
+      "opportunity_id": "61420a595a62439294e99bb70b8e4987",
+      "evaluation_id": "evaluation:dd41e1374afb5836805f986ffc6e8cb8",
+      "execution_id": "85b9bf9eb1694ee1ba1e8f89d28e6751",
+      "occurred_at": 1700000010.0,
+      "stage": "tool_selection",
+      "status": "observed",
+      "reason": "planner_response",
+      "logical_turn_id": "e92aa50dcfac4c858c550382e221ae1f",
+      "cycle_id": "1",
+      "replay_status": "disabled",
+      "message_event_ids": [],
+      "tool_names": [],
+      "link_source": "gate_dispatch",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "8a4e56b16a52450194f7a37319bd2523",
+      "opportunity_id": "61420a595a62439294e99bb70b8e4987",
+      "evaluation_id": "evaluation:dd41e1374afb5836805f986ffc6e8cb8",
+      "execution_id": "85b9bf9eb1694ee1ba1e8f89d28e6751",
+      "occurred_at": 1700000010.0,
+      "stage": "cycle_ended",
+      "status": "observed",
+      "reason": "planner_no_tool_end",
+      "logical_turn_id": "e92aa50dcfac4c858c550382e221ae1f",
+      "cycle_id": "1",
+      "replay_status": "disabled",
+      "message_event_ids": [],
+      "tool_names": [],
+      "link_source": "gate_dispatch",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "2d01adf08feb4088afd0e2d18e40c661",
+      "opportunity_id": "61420a595a62439294e99bb70b8e4987",
+      "evaluation_id": "evaluation:dd41e1374afb5836805f986ffc6e8cb8",
+      "execution_id": "85b9bf9eb1694ee1ba1e8f89d28e6751",
+      "occurred_at": 1700000010.0,
+      "stage": "cycle_finalized",
+      "status": "observed",
+      "reason": "planner_no_tool_end",
+      "logical_turn_id": "e92aa50dcfac4c858c550382e221ae1f",
+      "cycle_id": "1",
+      "replay_status": "disabled",
+      "message_event_ids": [],
+      "tool_names": [],
+      "link_source": "gate_dispatch",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "e7dcac072a264adb8cde339bcb9b6ad5",
+      "opportunity_id": "61420a595a62439294e99bb70b8e4987",
+      "evaluation_id": "evaluation:dd41e1374afb5836805f986ffc6e8cb8",
+      "execution_id": "85b9bf9eb1694ee1ba1e8f89d28e6751",
+      "occurred_at": 1700000010.0,
+      "stage": "execution_ended",
+      "status": "observed",
+      "reason": "planner_no_tool_end",
+      "logical_turn_id": "e92aa50dcfac4c858c550382e221ae1f",
+      "cycle_id": "1",
+      "replay_status": "disabled",
+      "message_event_ids": [],
+      "tool_names": [],
+      "link_source": "gate_dispatch",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "fe358b11d1594fd29720c1b80a7648b0",
+      "opportunity_id": "priority_opportunity:8d4a95eb79eb50ee870049b3e9a7adbf",
+      "evaluation_id": null,
+      "execution_id": "61c05b71f35c4b88891858dab6f52f11",
+      "occurred_at": 1792486291.0767121,
+      "stage": "priority_candidate",
+      "status": "observed",
+      "reason": "claim_passed",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "not_observed",
+      "message_event_ids": [
+        "message:0b8660fb8a5e59118f66016baf1732a8"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "ad853906daeb4b4babc30e05dee21a60",
+      "opportunity_id": "priority_opportunity:8d4a95eb79eb50ee870049b3e9a7adbf",
+      "evaluation_id": null,
+      "execution_id": "61c05b71f35c4b88891858dab6f52f11",
+      "occurred_at": 1792486291.0767121,
+      "stage": "priority_admission_entered",
+      "status": "observed",
+      "reason": "start_reply",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:0b8660fb8a5e59118f66016baf1732a8"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "1d63d5ba84f6492ab271114ed9acf46b",
+      "opportunity_id": "priority_opportunity:8d4a95eb79eb50ee870049b3e9a7adbf",
+      "evaluation_id": null,
+      "execution_id": "61c05b71f35c4b88891858dab6f52f11",
+      "occurred_at": 1792486291.0767121,
+      "stage": "priority_rejected",
+      "status": "rejected",
+      "reason": "global_queue_full",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:0b8660fb8a5e59118f66016baf1732a8"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "c72a0725ec4e47e7aeaefd146d318db6",
+      "opportunity_id": "priority_opportunity:8d4a95eb79eb50ee870049b3e9a7adbf",
+      "evaluation_id": null,
+      "execution_id": "61c05b71f35c4b88891858dab6f52f11",
+      "occurred_at": 1792486291.0767121,
+      "stage": "priority_fallback_requested",
+      "status": "not_observed",
+      "reason": "not_taken_by_priority",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "not_observed",
+      "message_event_ids": [
+        "message:0b8660fb8a5e59118f66016baf1732a8"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "97b1ccfab80c4b969e5ec8d1e2506ccc",
+      "opportunity_id": "priority_opportunity:8d4a95eb79eb50ee870049b3e9a7adbf",
+      "evaluation_id": null,
+      "execution_id": "61c05b71f35c4b88891858dab6f52f11",
+      "occurred_at": 1792486291.0767121,
+      "stage": "priority_fallback_registered",
+      "status": "ordinary_pending",
+      "reason": "runtime_registration",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "not_observed",
+      "message_event_ids": [
+        "message:0b8660fb8a5e59118f66016baf1732a8"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "5e84b5d8fc2642c5815a5eff60bdaf89",
+      "opportunity_id": "priority_opportunity:8d4a95eb79eb50ee870049b3e9a7adbf",
+      "evaluation_id": null,
+      "execution_id": "6b7354d0c20a4355b33885b01dec6445",
+      "occurred_at": 1792486291.0777123,
+      "stage": "priority_candidate",
+      "status": "observed",
+      "reason": "claim_passed",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "not_observed",
+      "message_event_ids": [
+        "message:0b8660fb8a5e59118f66016baf1732a8"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "81fac355717f4d91bfa4734cd6300d1e",
+      "opportunity_id": "priority_opportunity:8d4a95eb79eb50ee870049b3e9a7adbf",
+      "evaluation_id": null,
+      "execution_id": "6b7354d0c20a4355b33885b01dec6445",
+      "occurred_at": 1792486291.0777123,
+      "stage": "priority_admission_entered",
+      "status": "observed",
+      "reason": "start_reply",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:0b8660fb8a5e59118f66016baf1732a8"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "919526eab3184e28ab4f9e42b514f62e",
+      "opportunity_id": "priority_opportunity:8d4a95eb79eb50ee870049b3e9a7adbf",
+      "evaluation_id": null,
+      "execution_id": "6b7354d0c20a4355b33885b01dec6445",
+      "occurred_at": 1792486291.0777123,
+      "stage": "priority_admitted",
+      "status": "admitted",
+      "reason": "available_slot",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:0b8660fb8a5e59118f66016baf1732a8"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "830d8ed678bd4f22acc2741c2f3774cb",
+      "opportunity_id": "priority_opportunity:8d4a95eb79eb50ee870049b3e9a7adbf",
+      "evaluation_id": null,
+      "execution_id": "6b7354d0c20a4355b33885b01dec6445",
+      "occurred_at": 1792486291.0777123,
+      "stage": "priority_enqueued",
+      "status": "enqueued",
+      "reason": "available_slot",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:0b8660fb8a5e59118f66016baf1732a8"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "a61f5dc3b3ec4330a5c7282c075a2d13",
+      "opportunity_id": "priority_opportunity:8d4a95eb79eb50ee870049b3e9a7adbf",
+      "evaluation_id": null,
+      "execution_id": "6b7354d0c20a4355b33885b01dec6445",
+      "occurred_at": 1792486291.0777123,
+      "stage": "priority_task_created",
+      "status": "created",
+      "reason": "asyncio_task_created",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:0b8660fb8a5e59118f66016baf1732a8"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "04477c4f62364761b5f56e824b150acd",
+      "opportunity_id": "priority_opportunity:8d4a95eb79eb50ee870049b3e9a7adbf",
+      "evaluation_id": null,
+      "execution_id": "6b7354d0c20a4355b33885b01dec6445",
+      "occurred_at": 1792486291.0777123,
+      "stage": "priority_taken",
+      "status": "owned",
+      "reason": "runtime_handled_committed",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:0b8660fb8a5e59118f66016baf1732a8"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "f766a27e3c7e4a62942b5624dc39f829",
+      "opportunity_id": "priority_opportunity:8d4a95eb79eb50ee870049b3e9a7adbf",
+      "evaluation_id": null,
+      "execution_id": "6b7354d0c20a4355b33885b01dec6445",
+      "occurred_at": 1792486291.0787125,
+      "stage": "priority_task_started",
+      "status": "started",
+      "reason": "task_coroutine_entered",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:0b8660fb8a5e59118f66016baf1732a8"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "c4c2522786f24b2998146cf387118e1b",
+      "opportunity_id": "priority_opportunity:8d4a95eb79eb50ee870049b3e9a7adbf",
+      "evaluation_id": null,
+      "execution_id": "6b7354d0c20a4355b33885b01dec6445",
+      "occurred_at": 1792486291.0787125,
+      "stage": "priority_reply_entry",
+      "status": "entered",
+      "reason": "existing_reply_decorators_passed",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:0b8660fb8a5e59118f66016baf1732a8"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "80f8ae9ffb9c40a091bddd52d5aaa652",
+      "opportunity_id": "priority_opportunity:8d4a95eb79eb50ee870049b3e9a7adbf",
+      "evaluation_id": null,
+      "execution_id": "6b7354d0c20a4355b33885b01dec6445",
+      "occurred_at": 1792486291.0787125,
+      "stage": "priority_path_selected",
+      "status": "text",
+      "reason": "existing_text_branch",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:0b8660fb8a5e59118f66016baf1732a8"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "b7ede37c66884bcdaf77bddbf01bb45e",
+      "opportunity_id": "priority_opportunity:8d4a95eb79eb50ee870049b3e9a7adbf",
+      "evaluation_id": null,
+      "execution_id": "6b7354d0c20a4355b33885b01dec6445",
+      "occurred_at": 1792486291.0787125,
+      "stage": "priority_replyer_entered",
+      "status": "entered",
+      "reason": "generate_reply_with_context",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:0b8660fb8a5e59118f66016baf1732a8"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "bc704ca5f2234e49a7f2932dd9b00d7d",
+      "opportunity_id": "priority_opportunity:8d4a95eb79eb50ee870049b3e9a7adbf",
+      "evaluation_id": null,
+      "execution_id": "6b7354d0c20a4355b33885b01dec6445",
+      "occurred_at": 1792486291.0787125,
+      "stage": "priority_task_ended",
+      "status": "returned",
+      "reason": "worker_returned_send_not_observed",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "not_observed",
+      "message_event_ids": [
+        "message:0b8660fb8a5e59118f66016baf1732a8"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "97d051f030ae4b56b48e9016facd241b",
+      "opportunity_id": "priority_opportunity:8b96f8a3d2005f64a3f54d3633dd91af",
+      "evaluation_id": null,
+      "execution_id": "a5400f6861504763aacb7ec06588b0cd",
+      "occurred_at": 1792486291.075711,
+      "stage": "priority_candidate",
+      "status": "observed",
+      "reason": "claim_passed",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "not_observed",
+      "message_event_ids": [
+        "message:6de6e41294d351d0b12274d3e00fe0fc"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "7a70ef7fe47c47a4a0a08869039abb89",
+      "opportunity_id": "priority_opportunity:8b96f8a3d2005f64a3f54d3633dd91af",
+      "evaluation_id": null,
+      "execution_id": "a5400f6861504763aacb7ec06588b0cd",
+      "occurred_at": 1792486291.075711,
+      "stage": "priority_admission_entered",
+      "status": "observed",
+      "reason": "start_reply",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:6de6e41294d351d0b12274d3e00fe0fc"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "8ecf927f366645c7a331c938c4b877d3",
+      "opportunity_id": "priority_opportunity:8b96f8a3d2005f64a3f54d3633dd91af",
+      "evaluation_id": null,
+      "execution_id": "a5400f6861504763aacb7ec06588b0cd",
+      "occurred_at": 1792486291.075711,
+      "stage": "priority_admitted",
+      "status": "admitted",
+      "reason": "waiting_for_concurrency_slot",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:6de6e41294d351d0b12274d3e00fe0fc"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "b3475657d29c495d9c7a3b895db76883",
+      "opportunity_id": "priority_opportunity:8b96f8a3d2005f64a3f54d3633dd91af",
+      "evaluation_id": null,
+      "execution_id": "a5400f6861504763aacb7ec06588b0cd",
+      "occurred_at": 1792486291.075711,
+      "stage": "priority_enqueued",
+      "status": "enqueued",
+      "reason": "waiting_for_concurrency_slot",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:6de6e41294d351d0b12274d3e00fe0fc"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "b6c0acc7357047a486d66a80c4fa0eca",
+      "opportunity_id": "priority_opportunity:8b96f8a3d2005f64a3f54d3633dd91af",
+      "evaluation_id": null,
+      "execution_id": "a5400f6861504763aacb7ec06588b0cd",
+      "occurred_at": 1792486291.075711,
+      "stage": "priority_taken",
+      "status": "owned",
+      "reason": "runtime_handled_committed",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:6de6e41294d351d0b12274d3e00fe0fc"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "a7add4fa3c5c4a619a2ddd6e5fbd1d0e",
+      "opportunity_id": "priority_opportunity:8b96f8a3d2005f64a3f54d3633dd91af",
+      "evaluation_id": null,
+      "execution_id": "a5400f6861504763aacb7ec06588b0cd",
+      "occurred_at": 1792486291.0777123,
+      "stage": "priority_task_created",
+      "status": "created",
+      "reason": "asyncio_task_created",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:6de6e41294d351d0b12274d3e00fe0fc"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "4aea901d6c0f40539db42f3b3304fd31",
+      "opportunity_id": "priority_opportunity:8b96f8a3d2005f64a3f54d3633dd91af",
+      "evaluation_id": null,
+      "execution_id": "a5400f6861504763aacb7ec06588b0cd",
+      "occurred_at": 1792486291.0777123,
+      "stage": "priority_task_started",
+      "status": "started",
+      "reason": "task_coroutine_entered",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:6de6e41294d351d0b12274d3e00fe0fc"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "754ea2a933ca40868d5a48af12a81265",
+      "opportunity_id": "priority_opportunity:8b96f8a3d2005f64a3f54d3633dd91af",
+      "evaluation_id": null,
+      "execution_id": "a5400f6861504763aacb7ec06588b0cd",
+      "occurred_at": 1792486291.0777123,
+      "stage": "priority_reply_entry",
+      "status": "entered",
+      "reason": "existing_reply_decorators_passed",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:6de6e41294d351d0b12274d3e00fe0fc"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "cb7af48813664e78afe5ee2016f4a8b8",
+      "opportunity_id": "priority_opportunity:8b96f8a3d2005f64a3f54d3633dd91af",
+      "evaluation_id": null,
+      "execution_id": "a5400f6861504763aacb7ec06588b0cd",
+      "occurred_at": 1792486291.0777123,
+      "stage": "priority_path_selected",
+      "status": "text",
+      "reason": "existing_text_branch",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:6de6e41294d351d0b12274d3e00fe0fc"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "b7b714eae9d5420e963ec447f43f499a",
+      "opportunity_id": "priority_opportunity:8b96f8a3d2005f64a3f54d3633dd91af",
+      "evaluation_id": null,
+      "execution_id": "a5400f6861504763aacb7ec06588b0cd",
+      "occurred_at": 1792486291.0777123,
+      "stage": "priority_replyer_entered",
+      "status": "entered",
+      "reason": "generate_reply_with_context",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:6de6e41294d351d0b12274d3e00fe0fc"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "a4190f94b30a4c5b89d8f181151a36e0",
+      "opportunity_id": "priority_opportunity:8b96f8a3d2005f64a3f54d3633dd91af",
+      "evaluation_id": null,
+      "execution_id": "a5400f6861504763aacb7ec06588b0cd",
+      "occurred_at": 1792486291.0777123,
+      "stage": "priority_task_ended",
+      "status": "returned",
+      "reason": "worker_returned_send_not_observed",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "not_observed",
+      "message_event_ids": [
+        "message:6de6e41294d351d0b12274d3e00fe0fc"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "db7c8b1841a84ef78857d1f8844d8fa7",
+      "opportunity_id": "priority_opportunity:bcdb7230e35554c3adbcabcc9b718427",
+      "evaluation_id": null,
+      "execution_id": "36c11c7b355a49858efaca2ef4b3ada0",
+      "occurred_at": 1792486291.0747113,
+      "stage": "priority_candidate",
+      "status": "observed",
+      "reason": "claim_passed",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "not_observed",
+      "message_event_ids": [
+        "message:7a2b4537474d5a0586ee286771468c0d"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "5ec12425f0114537b2bf557c38ffcda6",
+      "opportunity_id": "priority_opportunity:bcdb7230e35554c3adbcabcc9b718427",
+      "evaluation_id": null,
+      "execution_id": "36c11c7b355a49858efaca2ef4b3ada0",
+      "occurred_at": 1792486291.0747113,
+      "stage": "priority_admission_entered",
+      "status": "observed",
+      "reason": "start_reply",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:7a2b4537474d5a0586ee286771468c0d"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "5f9800aaef39459e941d1062e8f40b79",
+      "opportunity_id": "priority_opportunity:bcdb7230e35554c3adbcabcc9b718427",
+      "evaluation_id": null,
+      "execution_id": "36c11c7b355a49858efaca2ef4b3ada0",
+      "occurred_at": 1792486291.0747113,
+      "stage": "priority_admitted",
+      "status": "admitted",
+      "reason": "available_slot",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:7a2b4537474d5a0586ee286771468c0d"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "dfff3d89ac26423e8ae9c41541f998d3",
+      "opportunity_id": "priority_opportunity:bcdb7230e35554c3adbcabcc9b718427",
+      "evaluation_id": null,
+      "execution_id": "36c11c7b355a49858efaca2ef4b3ada0",
+      "occurred_at": 1792486291.0747113,
+      "stage": "priority_enqueued",
+      "status": "enqueued",
+      "reason": "available_slot",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:7a2b4537474d5a0586ee286771468c0d"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "9cb027b7530f41f3827ace0a98b8bfac",
+      "opportunity_id": "priority_opportunity:bcdb7230e35554c3adbcabcc9b718427",
+      "evaluation_id": null,
+      "execution_id": "36c11c7b355a49858efaca2ef4b3ada0",
+      "occurred_at": 1792486291.0747113,
+      "stage": "priority_task_created",
+      "status": "created",
+      "reason": "asyncio_task_created",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:7a2b4537474d5a0586ee286771468c0d"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "ccd26339f9ef4f36a16b6d0010932b29",
+      "opportunity_id": "priority_opportunity:bcdb7230e35554c3adbcabcc9b718427",
+      "evaluation_id": null,
+      "execution_id": "36c11c7b355a49858efaca2ef4b3ada0",
+      "occurred_at": 1792486291.0747113,
+      "stage": "priority_taken",
+      "status": "owned",
+      "reason": "runtime_handled_committed",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:7a2b4537474d5a0586ee286771468c0d"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "8f34000e258847048056b82862546f15",
+      "opportunity_id": "priority_opportunity:bcdb7230e35554c3adbcabcc9b718427",
+      "evaluation_id": null,
+      "execution_id": "36c11c7b355a49858efaca2ef4b3ada0",
+      "occurred_at": 1792486291.0777123,
+      "stage": "priority_task_started",
+      "status": "started",
+      "reason": "task_coroutine_entered",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:7a2b4537474d5a0586ee286771468c0d"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "72b404328263432f964878c0677fdedc",
+      "opportunity_id": "priority_opportunity:bcdb7230e35554c3adbcabcc9b718427",
+      "evaluation_id": null,
+      "execution_id": "36c11c7b355a49858efaca2ef4b3ada0",
+      "occurred_at": 1792486291.0777123,
+      "stage": "priority_reply_entry",
+      "status": "entered",
+      "reason": "existing_reply_decorators_passed",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:7a2b4537474d5a0586ee286771468c0d"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "d738cf65454947d4901c4b4962960467",
+      "opportunity_id": "priority_opportunity:bcdb7230e35554c3adbcabcc9b718427",
+      "evaluation_id": null,
+      "execution_id": "36c11c7b355a49858efaca2ef4b3ada0",
+      "occurred_at": 1792486291.0777123,
+      "stage": "priority_path_selected",
+      "status": "text",
+      "reason": "existing_text_branch",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:7a2b4537474d5a0586ee286771468c0d"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "73a64f621e174e2eadb62f6f13e7a76d",
+      "opportunity_id": "priority_opportunity:bcdb7230e35554c3adbcabcc9b718427",
+      "evaluation_id": null,
+      "execution_id": "36c11c7b355a49858efaca2ef4b3ada0",
+      "occurred_at": 1792486291.0777123,
+      "stage": "priority_replyer_entered",
+      "status": "entered",
+      "reason": "generate_reply_with_context",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "disabled",
+      "message_event_ids": [
+        "message:7a2b4537474d5a0586ee286771468c0d"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    },
+    {
+      "event_id": "9c4ebdd590264c63877e298bcc489501",
+      "opportunity_id": "priority_opportunity:bcdb7230e35554c3adbcabcc9b718427",
+      "evaluation_id": null,
+      "execution_id": "36c11c7b355a49858efaca2ef4b3ada0",
+      "occurred_at": 1792486291.0777123,
+      "stage": "priority_task_ended",
+      "status": "returned",
+      "reason": "worker_returned_send_not_observed",
+      "logical_turn_id": null,
+      "cycle_id": null,
+      "replay_status": "not_observed",
+      "message_event_ids": [
+        "message:7a2b4537474d5a0586ee286771468c0d"
+      ],
+      "tool_names": [],
+      "link_source": "priority_at",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    }
+  ],
+  "transfers": [
+    {
+      "transfer_id": "priority_fallback:6c5ffe40ca7d56eb9097e3347c86b71a",
+      "source_opportunity_id": "priority_opportunity:8d4a95eb79eb50ee870049b3e9a7adbf",
+      "target_opportunity_id": "61420a595a62439294e99bb70b8e4987",
+      "message_event_id": "message:0b8660fb8a5e59118f66016baf1732a8",
+      "execution_id": "61c05b71f35c4b88891858dab6f52f11",
+      "relation_type": "priority_to_ordinary",
+      "occurred_at": 1792486291.0767121,
+      "account_id": "bot"
+    }
+  ],
+  "claim_checks": []
+}

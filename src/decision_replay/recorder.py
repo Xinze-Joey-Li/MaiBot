@@ -269,7 +269,7 @@ def traced_priority(function):
     async def wrapper(self, message, *args, **kwargs):
         if not safe_enabled():
             return await function(self, message, *args, **kwargs)
-        trace = self._replay_traces.get((message.session_id, message.message_id)) or new_trace(
+        trace = self._replay_traces.get(self.message_key(message)) or new_trace(
             message.session_id, "priority_at"
         )
         with bind(trace):
@@ -368,7 +368,7 @@ def priority_queued(service, message, *, overloaded: bool = False) -> None:
         return
     trace = new_trace(message.session_id, "priority_at")
     if not overloaded:
-        service._replay_traces[(message.session_id, message.message_id)] = trace
+        service._replay_traces[service.message_key(message)] = trace
     record(
         "scheduler",
         "turn.started",

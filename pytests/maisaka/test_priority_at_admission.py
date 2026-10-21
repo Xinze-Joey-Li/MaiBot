@@ -135,7 +135,7 @@ async def test_concurrent_duplicate_during_history_build_has_one_owner(monkeypat
         _emit_monitor_message_ingested=Mock(),
     )
     messages = [SimpleNamespace(
-        session_id="a", message_id="same", message_info=SimpleNamespace(
+        session_id="a", message_id="same", platform="qq", message_info=SimpleNamespace(
             additional_config={"priority_at_requested": True},
         ),
     ) for _ in range(2)]

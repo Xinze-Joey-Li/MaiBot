@@ -71,6 +71,7 @@
       "dataTransfer": "数据管理",
       "statistics": "详细统计数据",
       "decisionReplay": "决策回放",
+      "decisionObservation": "决策观察",
       "replyEffects": "回复效果",
       "logViewer": "日志查看器",
       "reasoningProcess": "推理过程",

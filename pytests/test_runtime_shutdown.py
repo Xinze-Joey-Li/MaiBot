@@ -187,11 +187,13 @@ async def test_priority_shutdown_drains_existing_queue_without_admitting_more(mo
     monkeypatch.setattr(service, "_reply", reply)
     runtime = SimpleNamespace(_chat_history=[])
     for index in range(3):
-        assert service.start_reply(SimpleNamespace(session_id="group", message_id=str(index)), runtime)
+        assert service.start_reply(SimpleNamespace(session_id="group", message_id=str(index), platform="qq",
+            message_info=SimpleNamespace(additional_config={"account_id": "bot"})), runtime)
     await entered.wait()
     shutdown_task = asyncio.create_task(service.shutdown(drain=True))
     await asyncio.sleep(0)
-    assert not service.start_reply(SimpleNamespace(session_id="group", message_id="late"), runtime)
+    assert not service.start_reply(SimpleNamespace(session_id="group", message_id="late", platform="qq",
+        message_info=SimpleNamespace(additional_config={"account_id": "bot"})), runtime)
     assert not shutdown_task.done()
     release.set()
     await asyncio.wait_for(shutdown_task, 3)

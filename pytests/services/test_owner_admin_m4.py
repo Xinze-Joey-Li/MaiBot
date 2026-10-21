@@ -208,9 +208,9 @@ async def test_pause_new_messages_retained_without_planner_and_priority_at_block
     runtime._emit_monitor_message_ingested = Mock()
     await runtime.register_message(message)
     assert runtime._chat_history == ["retained"]
-    engine = object.__new__(MaisakaReasoningEngine)
-    engine._runtime = SimpleNamespace(session_id="group-a", message_cache=[], _last_processed_index=0,
-                                     _mark_message_turn_unscheduled=Mock())
+    engine = MaisakaReasoningEngine(SimpleNamespace(
+        session_id="group-a", message_cache=[], _last_processed_index=0,
+        _mark_message_turn_unscheduled=Mock()))
     engine._drain_ready_turn_triggers = lambda value: (False, True, False)
     context = await engine._prepare_turn_start_context("timeout")
     assert context.trigger_message is None
@@ -621,8 +621,7 @@ async def test_debounce_pause_resume_retains_pending_without_reviving_old_turn(e
                               _wait_for_message_quiet_period=quiet_period,
                               _mark_message_turn_unscheduled=Mock(),
                               _collect_pending_messages=Mock())
-    engine = object.__new__(MaisakaReasoningEngine)
-    engine._runtime = runtime
+    engine = MaisakaReasoningEngine(runtime)
     engine._drain_ready_turn_triggers = lambda value: (True, False, False)
     context = await engine._prepare_turn_start_context("message")
     assert context.trigger_message is None and runtime.message_cache is pending

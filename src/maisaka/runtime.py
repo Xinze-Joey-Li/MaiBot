@@ -543,7 +543,7 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
 
     async def stop(self) -> None:
         """停止运行时主循环。"""
-        from src.decision_observation.recorder import finalize
+        from src.decision_observation.recorder import discarded, finalize
 
         finalize(self, "interrupted")
         if not self._running:
@@ -557,7 +557,8 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
         self._cancel_wait_timeout_task()
         await self._cancel_trimmed_history_learning_task()
         while not self._internal_turn_queue.empty():
-            _ = self._internal_turn_queue.get_nowait()
+            payload = self._internal_turn_queue.get_nowait()
+            discarded(self, payload)
 
         if self._internal_loop_task is not None:
             self._internal_loop_task.cancel()
@@ -933,18 +934,31 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
         except RuntimeError as exc:
             logger.debug(f"{self.log_prefix} 广播收到消息到监控面板失败: {exc}")
 
-    async def register_message(self, message: SessionMessage) -> None:
+    async def register_message(self, message: SessionMessage, *, observation_reference: Any = None) -> None:
         """缓存一条新消息并唤醒主循环。"""
         from src.services.owner_admin.trigger_policy import is_ignored
 
         from src.services.owner_admin.system_runtime import session_paused
+        from src.decision_observation import recorder as observation
 
         if is_ignored(message) or session_paused(self.session_id):
+            observation.priority_event(None, message, observation_reference, "priority_runtime_rejected",
+                                       "not_observed", "ignored_or_paused_before_registration")
             # 上游已正常持久化；保留多人上下文，但不更新频率、@、冷却或打断信号。
             history_message = await self._reasoning_engine._build_history_message(message, source_kind="user")
             if history_message is not None:
                 self._chat_history.append(history_message)
             self._emit_monitor_message_ingested(message)
+            return
+        from src.services.priority_at_reply_service import priority_at_reply_service
+
+        if priority_at_reply_service.ordinary_owns(message):
+            observation.priority_event(None, message, observation_reference, "priority_ordinary_owned",
+                                       "suppressed", "existing_ordinary_owner")
+            return
+        if priority_at_reply_service.owns(message):
+            message.message_info.additional_config["priority_at_handled"] = True
+            observation.priority_owned(priority_at_reply_service, self, message, observation_reference, duplicate=True)
             return
         if message.message_info.additional_config.get("priority_at_requested") is True:
             from src.services.priority_at_reply_service import priority_at_reply_service
@@ -952,53 +966,77 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
             # 重投只允许已有独立路径继续处理，不能因关闭或满载转入普通队列。
             if priority_at_reply_service.owns(message):
                 message.message_info.additional_config["priority_at_handled"] = True
+                observation.priority_owned(priority_at_reply_service, self, message, observation_reference, duplicate=True)
                 return
             history_message = await self._reasoning_engine._build_history_message(message, source_kind="user")
             if history_message is None:
+                observation.priority_event(None, message, observation_reference, "priority_context_failed", "unknown", "history_context_missing")
                 raise RuntimeError("@ 消息无法构建回复上下文")
             # 构建上下文可能让出执行权；准入、归属标记和历史提交之间不能再 await。
             # 快照包含当前消息，拒绝时不写历史，继续下方普通消息注册流程。
-            accepted = priority_at_reply_service.start_reply(
-                message, self, history=[*self._chat_history, history_message],
-            )
+            if observation_reference is None:
+                accepted = priority_at_reply_service.start_reply(
+                    message, self, history=[*self._chat_history, history_message],
+                )
+            else:
+                accepted = priority_at_reply_service.start_reply(
+                    message, self, history=[*self._chat_history, history_message],
+                    observation_reference=observation_reference,
+                )
             if accepted:
                 message.message_info.additional_config["priority_at_handled"] = True
+                observation.priority_owned(priority_at_reply_service, self, message, observation_reference)
                 self._chat_history.append(history_message)
                 self._emit_monitor_message_ingested(message)
                 return
             if priority_at_reply_service.owns(message):
                 message.message_info.additional_config["priority_at_handled"] = True
+                observation.priority_owned(priority_at_reply_service, self, message, observation_reference, duplicate=True)
                 return
             message.message_info.additional_config.pop("priority_at_handled", None)
-        if self._running:
-            self._ensure_background_tasks_running()
-        received_at = time.time()
-        self._last_message_received_at = received_at
-        self._record_external_message_interval(message, received_at)
-        self._update_message_trigger_state(message)
-        self.message_cache.append(message)
-        from src.decision_observation.recorder import registered
-
-        registered(self)
-        self._emit_monitor_message_ingested(message)
-        self._prune_processed_message_cache()
-        if self._is_reply_effect_tracking_enabled():
-            asyncio.create_task(self._reply_effect_tracker.observe_user_message(message))
-        if not self._should_continue_after_focus_gate(message):
-            from src.decision_observation.recorder import rejected
-
-            rejected(self, "focus_unavailable")
-            from src.decision_replay.recorder import new_trace, record
-            trace = new_trace(self.session_id)
-            record('gate', 'gate.decided', 'reject', 'focus_unavailable', trace=trace,
-                   message_ids=[message.message_id], detail={'session_name':self.session_name})
-            record('scheduler', 'turn.ended', 'waiting', 'focus_unavailable', trace=trace)
+            observation.priority_event(None, message, observation_reference, "priority_fallback_requested",
+                                       "not_observed", "not_taken_by_priority")
+        token = priority_at_reply_service._rights.take(
+            priority_at_reply_service.message_key(message), "normal", "pending", self,
+        )
+        if token is None:
             return
-        if self._agent_state == self._STATE_RUNNING:
-            self._mark_message_debounce_required()
-        self._request_planner_interrupt_for_message(message)
-        if self._running:
-            self._schedule_message_turn()
+        committed = False
+        try:
+            if self._running:
+                self._ensure_background_tasks_running()
+            received_at = time.time()
+            self._last_message_received_at = received_at
+            self._record_external_message_interval(message, received_at)
+            self._update_message_trigger_state(message)
+            self.message_cache.append(message)
+            committed = True
+            from src.decision_observation.recorder import registered
+
+            registered(self)
+            observation.priority_fallback(self, message, observation_reference)
+            self._emit_monitor_message_ingested(message)
+            self._prune_processed_message_cache()
+            if self._is_reply_effect_tracking_enabled():
+                asyncio.create_task(self._reply_effect_tracker.observe_user_message(message))
+            if not self._should_continue_after_focus_gate(message):
+                from src.decision_observation.recorder import rejected
+
+                rejected(self, "focus_unavailable")
+                from src.decision_replay.recorder import new_trace, record
+                trace = new_trace(self.session_id)
+                record('gate', 'gate.decided', 'reject', 'focus_unavailable', trace=trace,
+                       message_ids=[message.message_id], detail={'session_name':self.session_name})
+                record('scheduler', 'turn.ended', 'waiting', 'focus_unavailable', trace=trace)
+                return
+            if self._agent_state == self._STATE_RUNNING:
+                self._mark_message_debounce_required()
+            self._request_planner_interrupt_for_message(message)
+            if self._running:
+                self._schedule_message_turn()
+        finally:
+            if not committed:
+                priority_at_reply_service._rights.release(token)
 
     def _should_continue_after_focus_gate(self, message: SessionMessage) -> bool:
         """处理 focus 模式准入与唤醒调度，返回是否继续进入 Maisaka 决策。"""
@@ -1321,11 +1359,17 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
         self._deferred_message_turn_task.cancel()
         self._deferred_message_turn_task = None
 
-    def _enqueue_message_turn(self) -> None:
+    def _enqueue_message_turn(self, observation_reference=None) -> None:
         """投递一次消息触发的内部循环。"""
         self._cancel_deferred_message_turn_task()
         self._message_turn_scheduled = True
-        self._internal_turn_queue.put_nowait("message")
+        from src.decision_observation import recorder as observation
+
+        payload = observation.trigger(observation_reference) if observation_reference is not None else None
+        self._internal_turn_queue.put_nowait(payload if payload is not None else "message")
+        if payload is not None:
+            observation.execution(payload.references, "enqueued", "enqueued", "ordinary_gate_pass",
+                                  session_id=self.session_id)
 
     def _defer_message_turn_check(self, delay_seconds: float) -> None:
         """延迟后重新检查是否应投递消息触发。"""
@@ -1847,10 +1891,14 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
         if not pending_messages:
             return []
 
+        from src.services.priority_at_reply_service import priority_at_reply_service
+
+        priority_at_reply_service._rights.consume_normal(self, pending_messages)
         self._last_processed_index = len(self.message_cache)
-        from src.decision_observation.recorder import finalize
+        from src.decision_observation.recorder import consume, finalize
 
         # 这里只确认 pending 已消费，不能据此推断 Planner、Replyer 或平台发送。
+        observed_messages = consume(self, pending_messages)
         finalize(self, "consumed")
         if pending_messages:
             focus_mode_manager.mark_read(self.session_id)
@@ -1858,7 +1906,7 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
         # f"{self.log_prefix} 已从消息缓存区截至[{self._last_processed_index}] "
         # f"收集 {len(pending_messages)} 条新消息"
         # )
-        return pending_messages
+        return observed_messages if observed_messages is not None else pending_messages
 
     async def _wait_for_message_quiet_period(self) -> None:
         """等待消息静默窗口结束后，再启动由打断触发的新一轮。"""

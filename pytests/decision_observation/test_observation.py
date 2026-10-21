@@ -56,9 +56,11 @@ def runtime(session="group-a", messages=None):
     )
     rt._get_pending_message_count = lambda: len(rt.message_cache[rt._last_processed_index :])
 
-    def enqueue():
-        rt._message_turn_scheduled = True
-        rt._internal_turn_queue.put_nowait("message")
+    def enqueue(reference=None):
+        from src.maisaka.runtime import MaisakaHeartFlowChatting
+
+        rt._cancel_deferred_message_turn_task = Mock()
+        MaisakaHeartFlowChatting._enqueue_message_turn(rt, reference)
 
     rt._enqueue_message_turn = Mock(side_effect=enqueue)
     return rt
@@ -66,6 +68,13 @@ def runtime(session="group-a", messages=None):
 
 @pytest.fixture
 def observed(tmp_path, monkeypatch):
+    from src.services import priority_at_reply_service
+    from src.services.message_processing_rights import ProcessingRights
+
+    service = priority_at_reply_service.priority_at_reply_service
+    # Each synthetic test world starts with fresh execution ownership as well as
+    # a fresh ObservationStore. Reusing m1 across tests is not a platform redelivery.
+    monkeypatch.setattr(service, "_rights", ProcessingRights())
     instance = ObservationStore(tmp_path / "observation.db")
     monkeypatch.setattr(recorder, "store", instance)
     yield instance

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearch } from '@tanstack/react-router'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -217,12 +218,22 @@ function Timeline({ turn }: { turn: Turn }) {
 }
 
 export function DecisionReplayPage() {
+  const search = useSearch({ strict: false })
+  const [observationTurn, setObservationTurn] = useState<Turn | null>(null)
   const [listing, setListing] = useState<Listing | null>(null)
   const [sessions, setSessions] = useState<{ session_id: string; name: string }[]>([])
   const [page, setPage] = useState(1)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    let active = true
+    setObservationTurn(null)
+    if (search.observationTurn && search.observationSession) {
+      backendApi.get<Detail>(`/api/webui/decision-replay/${encodeURIComponent(search.observationTurn)}?session_id=${encodeURIComponent(search.observationSession)}`).then((value) => { if (active) setObservationTurn(value) }).catch((e) => { if (active) setError(String(e)) })
+    }
+    return () => { active = false }
+  }, [search.observationTurn, search.observationSession])
   const serial = useRef(0)
   const [filters, setFilters] = useState({
     session_id: '',
@@ -313,6 +324,7 @@ export function DecisionReplayPage() {
   const summary = listing?.summary
   return (
     <div className="space-y-5 p-4 md:p-6">
+      {observationTurn && <Card><CardHeader><CardTitle>观察机会关联回放 · {observationTurn.logical_turn_id}</CardTitle></CardHeader><CardContent><Timeline turn={observationTurn} /></CardContent></Card>}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">决策回放 / Decision Replay</h1>
         <Button disabled={busy} onClick={() => void load()}>

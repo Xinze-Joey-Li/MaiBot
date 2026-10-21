@@ -6,6 +6,7 @@ from src.services.owner_admin.trigger_policy import pending_trigger_messages
 
 from src.common.logger import get_logger
 from src.decision_observation import recorder as observation
+from src.decision_observation.models import Reference
 from src.decision_replay.recorder import probe
 from src.maisaka.focus import focus_mode_manager
 from src.maisaka.mode_policy import is_dynamic_reply_trigger_enabled
@@ -33,17 +34,17 @@ class MessageTurnScheduler:
         self._dynamic_reply_gate.record_reply()
 
     @observation.isolated
-    def _observe(self, decision: str, reason: str, *, evaluated_at: Optional[float] = None, **detail) -> None:
+    def _observe(self, decision: str, reason: str, *, evaluated_at: Optional[float] = None, **detail) -> Optional[Reference]:
         if not observation.store.policy.enabled:
             return
-        observation.evaluate(self._runtime, pending_trigger_messages(self._runtime), decision, reason,
+        return observation.evaluate(self._runtime, pending_trigger_messages(self._runtime), decision, reason,
                              detail, evaluated_at)
 
     @observation.isolated
-    def _observe_dynamic(self, result: TurnGateResult, frequency: float) -> None:
+    def _observe_dynamic(self, result: TurnGateResult, frequency: float) -> Optional[Reference]:
         if not observation.store.policy.enabled:
             return
-        self._observe("pass" if result.should_trigger else "reject", "dynamic_" + result.decision,
+        return self._observe("pass" if result.should_trigger else "reject", "dynamic_" + result.decision,
                       evaluated_at=result.evaluated_at, frequency=frequency, delay_seconds=result.delay_seconds,
                       **(result.replay_detail or {}))
 
@@ -128,7 +129,7 @@ class MessageTurnScheduler:
             return
 
         if runtime._has_forced_turn_trigger():
-            self._observe("not_observed", "forced_trigger_out_of_scope", frequency=effective_frequency)
+            observation_reference = self._observe("not_observed", "forced_trigger_out_of_scope", frequency=effective_frequency)
             self._replay("pass", "forced_trigger", frequency=effective_frequency)
             # @ 强制触发的回复同样占用动态门控的回复额度
             self._dynamic_reply_gate.record_forced_turn(pending_trigger_messages(runtime))
@@ -136,7 +137,10 @@ class MessageTurnScheduler:
                 f"{runtime.log_prefix} 回复频率调度: 频率={formatted_frequency} "
                 f"pending={pending_count} 判定=强制触发"
             )
-            runtime._enqueue_message_turn()
+            if observation_reference is not None and observation_reference.eligible:
+                runtime._enqueue_message_turn(observation_reference)
+            else:
+                runtime._enqueue_message_turn()
             return
 
         if runtime._idle_backoff.should_delay(pending_count):
@@ -150,7 +154,7 @@ class MessageTurnScheduler:
                 frequency=effective_frequency,
                 allow_observation=runtime._agent_state == "stop",
             )
-            self._observe_dynamic(dynamic_result, effective_frequency)
+            observation_reference = self._observe_dynamic(dynamic_result, effective_frequency)
             logger.info(
                 f"{runtime.log_prefix} 回复频率调度: [频率: {formatted_frequency}][{pending_count} 消息] "
                 f"{dynamic_result.detail}"
@@ -160,7 +164,10 @@ class MessageTurnScheduler:
                          delay_seconds=dynamic_result.delay_seconds,
                          **(dynamic_result.replay_detail or {}))
             if dynamic_result.should_trigger:
-                runtime._enqueue_message_turn()
+                if observation_reference is None:
+                    runtime._enqueue_message_turn()
+                else:
+                    runtime._enqueue_message_turn(observation_reference)
             elif dynamic_result.delay_seconds is not None:
                 runtime._defer_message_turn_check(dynamic_result.delay_seconds)
             return
@@ -173,7 +180,7 @@ class MessageTurnScheduler:
             pending_count=pending_count,
             trigger_threshold=trigger_threshold,
         )
-        self._observe("pass" if frequency_result.should_trigger else "reject",
+        observation_reference = self._observe("pass" if frequency_result.should_trigger else "reject",
                       "frequency_" + frequency_result.decision, frequency=effective_frequency,
                       delay_seconds=frequency_result.delay_seconds, message_count_threshold=trigger_threshold)
         logger.info(f"{runtime.log_prefix} 回复频率调度: {frequency_result.detail}")
@@ -181,7 +188,10 @@ class MessageTurnScheduler:
                      'frequency_' + frequency_result.decision, frequency=effective_frequency,
                      threshold=trigger_threshold, delay_seconds=frequency_result.delay_seconds)
         if frequency_result.should_trigger:
-            runtime._enqueue_message_turn()
+            if observation_reference is None:
+                runtime._enqueue_message_turn()
+            else:
+                runtime._enqueue_message_turn(observation_reference)
             return
 
         if frequency_result.decision == "delay" and frequency_result.delay_seconds is not None:

@@ -1,0 +1,289 @@
+{
+  "messages": [
+    {
+      "message_event_id": "message:a1cd02db62655e4699a5ea8afd91651c",
+      "session_id": "group-a",
+      "platform_message_id": "m1",
+      "sender_id": "synthetic-user",
+      "event_timestamp": 1700000000.0,
+      "received_timestamp": null,
+      "run_id": "14a569933a764340a16f66abca1926fa",
+      "source_type": "pending_observed",
+      "schema_version": 5
+    }
+  ],
+  "opportunities": [
+    {
+      "opportunity_id": "2a8fb26a456e4d18b3a812e3d8ed8e91",
+      "session_id": "group-a",
+      "created_at": 1792490612.3814583,
+      "run_id": "14a569933a764340a16f66abca1926fa",
+      "policy_version": "26e36f3fc80fffddbf65b85767012c087337e3e4b18a30cbde3b5c8bbb51de1b",
+      "source_type": "ordinary_pending",
+      "finalized_at": 1792490612.5868285,
+      "status": "interrupted",
+      "account_id": null,
+      "reply_event_count": 2,
+      "reply_events_truncated": false,
+      "message_event_ids": [
+        "message:a1cd02db62655e4699a5ea8afd91651c"
+      ],
+      "evaluation_count": 1,
+      "evaluations_truncated": false,
+      "incoming_transfer_ids": [],
+      "execution_event_count": 1,
+      "execution_events_truncated": false
+    }
+  ],
+  "evaluations": [
+    {
+      "evaluation_id": "evaluation:ce2a1f1e48175c3885c48387198d9312",
+      "opportunity_id": "2a8fb26a456e4d18b3a812e3d8ed8e91",
+      "evaluation_sequence": 1,
+      "evaluated_at": 1792490612.3825357,
+      "feature_version": "not_calculated",
+      "feature_snapshot": {
+        "status": "not_calculated",
+        "values": null,
+        "message_event_ids": [
+          "message:a1cd02db62655e4699a5ea8afd91651c"
+        ]
+      },
+      "effective_threshold": null,
+      "calculated_probability": null,
+      "gate_result": "pass",
+      "decision_reason": "mock_gate",
+      "weights_hash": null,
+      "evidence": {
+        "probability_status": "not_calculated",
+        "threshold_status": "not_calculated",
+        "weights_status": "not_calculated"
+      }
+    }
+  ],
+  "outcomes": [
+    {
+      "opportunity_id": "2a8fb26a456e4d18b3a812e3d8ed8e91",
+      "gate_result": "pass",
+      "planner_status": "not_observed",
+      "replyer_status": "not_observed",
+      "send_status": "not_observed",
+      "replay_turn_id": null,
+      "linkage_status": "explicit_events"
+    }
+  ],
+  "execution_events": [
+    {
+      "event_id": "reply_parent:2741affa486c597989eddc3cd034bead",
+      "opportunity_id": "2a8fb26a456e4d18b3a812e3d8ed8e91",
+      "evaluation_id": "evaluation:ce2a1f1e48175c3885c48387198d9312",
+      "execution_id": "execution:group-a:m1",
+      "occurred_at": 1792490612.3825357,
+      "stage": "reply_flow_linked",
+      "status": "observed",
+      "reason": "explicit_task_capability",
+      "logical_turn_id": "turn:group-a",
+      "cycle_id": "1",
+      "replay_status": "not_observed",
+      "message_event_ids": [
+        "message:a1cd02db62655e4699a5ea8afd91651c"
+      ],
+      "tool_names": [],
+      "link_source": "gate_dispatch",
+      "wait_tool_call_id": null,
+      "parent_execution_id": null
+    }
+  ],
+  "transfers": [],
+  "claim_checks": [],
+  "reply_events": [
+    {
+      "event_id": "reply_link:5c760387c5a654a3b22159021bf33435",
+      "occurrence_id": "reply_occurrence:2968ab4b23f859e185c25004be0f4ab7",
+      "parent_event_id": "reply_parent:2741affa486c597989eddc3cd034bead",
+      "opportunity_id": "2a8fb26a456e4d18b3a812e3d8ed8e91",
+      "evaluation_id": "evaluation:ce2a1f1e48175c3885c48387198d9312",
+      "execution_id": "execution:group-a:m1",
+      "flow_id": "ec20761403e54292a727abe8fd1de711",
+      "occurred_at": 1792490612.3825357,
+      "stage": "driver_send",
+      "status": "send_attempted",
+      "reason": "",
+      "logical_turn_id": "turn:group-a",
+      "cycle_id": "1",
+      "tool_call_id": "call",
+      "reply_id": null,
+      "generation_group_id": null,
+      "request_id": null,
+      "outbound_id": "out",
+      "attempt_id": "9d5c86982fc04f978fd1ab5d0edc57d0",
+      "detail": {
+        "content_type": "text",
+        "driver_id": "mock",
+        "error_type": null,
+        "driver_reported_status": null,
+        "driver_kind": null,
+        "platform": "qq",
+        "route_scope": null,
+        "collection_scope_id": "delivery_scope:fbb5a9c4596b59838ee0175f7b0ae14c",
+        "platform_confirmation": "not_observed",
+        "source": "planner",
+        "account_id": "bot",
+        "reply_identity": "not_observed",
+        "generation_identity": "not_observed",
+        "generation_call_id": null,
+        "send_call_id": null,
+        "missing_identity_reason": "replay_disabled_or_identity_not_available_at_boundary"
+      }
+    },
+    {
+      "event_id": "reply_link:e536b9409ab2508fa73cbd34c4e487dd",
+      "occurrence_id": "reply_occurrence:a735e7bb976951b1b78c8a5820cf042c",
+      "parent_event_id": "reply_parent:2741affa486c597989eddc3cd034bead",
+      "opportunity_id": "2a8fb26a456e4d18b3a812e3d8ed8e91",
+      "evaluation_id": "evaluation:ce2a1f1e48175c3885c48387198d9312",
+      "execution_id": "execution:group-a:m1",
+      "flow_id": "ec20761403e54292a727abe8fd1de711",
+      "occurred_at": 1792490612.383448,
+      "stage": "driver_return",
+      "status": "send_returned",
+      "reason": "",
+      "logical_turn_id": "turn:group-a",
+      "cycle_id": "1",
+      "tool_call_id": "call",
+      "reply_id": null,
+      "generation_group_id": null,
+      "request_id": null,
+      "outbound_id": "out",
+      "attempt_id": "9d5c86982fc04f978fd1ab5d0edc57d0",
+      "detail": {
+        "content_type": "text",
+        "driver_id": "mock",
+        "error_type": null,
+        "driver_reported_status": "unknown",
+        "driver_kind": "plugin",
+        "platform": "qq",
+        "route_scope": null,
+        "platform_confirmation": "not_observed",
+        "source": "planner",
+        "account_id": "bot",
+        "reply_identity": "not_observed",
+        "generation_identity": "not_observed",
+        "generation_call_id": null,
+        "send_call_id": null,
+        "missing_identity_reason": "replay_disabled_or_identity_not_available_at_boundary"
+      }
+    }
+  ],
+  "delivery_receipts": [
+    {
+      "receipt_id": "delivery_receipt:0f8de56e79975dcd96498b1b9a80d898",
+      "scope_id": "delivery_scope:fbb5a9c4596b59838ee0175f7b0ae14c",
+      "session_id": "group-a",
+      "platform": "qq",
+      "account_id": "bot",
+      "route_scope": null,
+      "outbound_id": "out",
+      "driver_id": "mock",
+      "driver_kind": "plugin",
+      "driver_status": "sent",
+      "platform_message_id": "late-platform-id",
+      "delivery_id": null,
+      "acknowledged": 0,
+      "retcode": null,
+      "observed_at": 1792490612.4518778,
+      "source": "tracker_callback",
+      "attempt_id": "9d5c86982fc04f978fd1ab5d0edc57d0",
+      "ambiguous": 0,
+      "failure_evidence": null,
+      "recorded_at": 1792490612.461402,
+      "conclusion": "platform_confirmed",
+      "evidence_strength": "platform_message_id",
+      "link_count": 1,
+      "linkage_status": "linked",
+      "platform_confirmed_at": null,
+      "attempt_conclusion": "platform_confirmed"
+    },
+    {
+      "receipt_id": "delivery_receipt:9d1b9d1e6dcd5b4f85112636c6294744",
+      "scope_id": "delivery_scope:fbb5a9c4596b59838ee0175f7b0ae14c",
+      "session_id": "group-a",
+      "platform": "qq",
+      "account_id": "bot",
+      "route_scope": null,
+      "outbound_id": "out",
+      "driver_id": "mock",
+      "driver_kind": "plugin",
+      "driver_status": "unknown",
+      "platform_message_id": null,
+      "delivery_id": null,
+      "acknowledged": 0,
+      "retcode": null,
+      "observed_at": 1792490612.383448,
+      "source": "driver_return",
+      "attempt_id": "9d5c86982fc04f978fd1ab5d0edc57d0",
+      "ambiguous": 0,
+      "failure_evidence": null,
+      "recorded_at": 1792490612.4220896,
+      "conclusion": "unknown",
+      "evidence_strength": "driver_report_only",
+      "link_count": 1,
+      "linkage_status": "linked",
+      "platform_confirmed_at": null,
+      "attempt_conclusion": "unknown"
+    }
+  ],
+  "delivery_links": [
+    {
+      "receipt_id": "delivery_receipt:0f8de56e79975dcd96498b1b9a80d898",
+      "parent_event_id": "reply_link:5c760387c5a654a3b22159021bf33435",
+      "linked_at": 1792490612.461402,
+      "opportunity_id": "2a8fb26a456e4d18b3a812e3d8ed8e91",
+      "evaluation_id": "evaluation:ce2a1f1e48175c3885c48387198d9312",
+      "execution_id": "execution:group-a:m1",
+      "flow_id": "ec20761403e54292a727abe8fd1de711",
+      "reply_id": null,
+      "outbound_id": "out",
+      "attempt_id": "9d5c86982fc04f978fd1ab5d0edc57d0",
+      "logical_turn_id": "turn:group-a",
+      "cycle_id": "1"
+    },
+    {
+      "receipt_id": "delivery_receipt:9d1b9d1e6dcd5b4f85112636c6294744",
+      "parent_event_id": "reply_link:5c760387c5a654a3b22159021bf33435",
+      "linked_at": 1792490612.423519,
+      "opportunity_id": "2a8fb26a456e4d18b3a812e3d8ed8e91",
+      "evaluation_id": "evaluation:ce2a1f1e48175c3885c48387198d9312",
+      "execution_id": "execution:group-a:m1",
+      "flow_id": "ec20761403e54292a727abe8fd1de711",
+      "reply_id": null,
+      "outbound_id": "out",
+      "attempt_id": "9d5c86982fc04f978fd1ab5d0edc57d0",
+      "logical_turn_id": "turn:group-a",
+      "cycle_id": "1"
+    }
+  ],
+  "delivery_attempt_states": [
+    {
+      "attempt_id": "9d5c86982fc04f978fd1ab5d0edc57d0",
+      "outbound_id": "out",
+      "driver_id": "mock",
+      "receipt_count": 2,
+      "confirmed": 1,
+      "definitive_failure": 0,
+      "not_applicable": 0,
+      "driver_statuses": [
+        "unknown",
+        "sent"
+      ],
+      "attempted": true,
+      "status": "platform_confirmed",
+      "conflicting_evidence": false
+    }
+  ],
+  "delivery_schema_available": true,
+  "delivery_receipt_count": 2,
+  "delivery_receipts_truncated": false,
+  "delivery_attempt_count": 1,
+  "delivery_attempt_states_truncated": false
+}

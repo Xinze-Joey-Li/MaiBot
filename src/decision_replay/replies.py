@@ -243,6 +243,8 @@ def platform_send(function):
 
 async def reconcile_receipt(result) -> None:
     """Late trusted receipts reuse persisted identity; ambiguous cross-session IDs are rejected."""
+    from src.decision_observation.delivery import receipt_observed as observation_receipt
+    observation_receipt(result)
     from contextlib import closing
     def lookup():
         with closing(recorder.store.connect()) as connection:

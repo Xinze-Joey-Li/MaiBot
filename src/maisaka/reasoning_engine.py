@@ -5,7 +5,7 @@ from binascii import Error as BinasciiError
 from dataclasses import dataclass, field
 from datetime import datetime
 from html import escape
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple
 
 from rich.panel import Panel
 
@@ -16,6 +16,7 @@ import time
 import uuid
 
 from src.services.owner_admin.system_runtime import SoftPauseInterrupt, check_cycle
+from src.decision_observation import reply_flow
 
 from src.chat.heart_flow.heartFC_utils import CycleDetail
 from src.chat.message_receive.message import SessionMessage
@@ -103,6 +104,7 @@ from src.maisaka.context.planner_messages import build_planner_user_prefix_from_
 from src.maisaka.visual.mode_utils import resolve_enable_visual_planner
 
 if TYPE_CHECKING:
+    from src.decision_observation.models import Reference
     from .runtime import MaisakaHeartFlowChatting
     from src.maisaka.builtin_tool.provider import BuiltinToolHandler
 
@@ -143,6 +145,7 @@ class TurnStartContext:
     proactive_triggered: bool
     silent_reply_frequency: bool
     logical_turn_id: str | None = None
+    observation_references: Tuple["Reference", ...] = ()
 
 
 @dataclass(slots=True)
@@ -176,6 +179,9 @@ class MaisakaReasoningEngine:
 
     def __init__(self, runtime: "MaisakaHeartFlowChatting") -> None:
         self._runtime = runtime
+        from src.decision_observation.execution import ExecutionTracker
+
+        self._observation = ExecutionTracker()
         self._last_reasoning_content: str = ""
         self._active_logical_turn_id: str | None = None
 
@@ -214,7 +220,9 @@ class MaisakaReasoningEngine:
         self._runtime._bind_planner_interrupt_flag(interrupt_flag)
         self._runtime._chat_loop_service.set_interrupt_flag(interrupt_flag)
         try:
-            return await self._runtime._chat_loop_service.chat_loop_step(
+            self._observation.record(self._runtime, "planner_started", "started", "request_entered",
+                                     message_ids=self._observation.request_message_ids)
+            response = await self._runtime._chat_loop_service.chat_loop_step(
                 self._runtime._chat_history,
                 injected_user_messages=injected_user_messages,
                 tail_user_messages=tail_user_messages,
@@ -222,6 +230,8 @@ class MaisakaReasoningEngine:
                 max_context_size=self._runtime._max_context_size,
                 logical_turn_id=self._active_logical_turn_id,
             )
+            self._observation.selected(self._runtime, response)
+            return response
         except ReqAbortException:
             interrupted = True
             raise
@@ -872,6 +882,7 @@ class MaisakaReasoningEngine:
         state.current_stage_started_at = planner_started_at
         state.action_tool_count = len(action_tool_definitions)
         check_cycle(self._runtime.session_id)
+        self._observation.request_batch(source_messages)
         response = await self._run_interruptible_planner(
             injected_user_messages=injected_user_messages or None,
             tail_user_messages=self._runtime.build_focus_tail_user_messages() or None,
@@ -948,6 +959,7 @@ class MaisakaReasoningEngine:
         await self._runtime._wait_for_message_quiet_period()
         self._runtime._mark_message_turn_unscheduled()
         interrupted_messages = self._runtime._collect_pending_messages()
+        self._observation.consumed(interrupted_messages, self._runtime)
         if not interrupted_messages:
             return PlannerInterruptResult(interrupted_response, extra_lines, [])
 
@@ -997,6 +1009,7 @@ class MaisakaReasoningEngine:
 
         await self._runtime._wait_for_message_quiet_period()
         pending_round_messages = self._runtime._collect_pending_messages()
+        self._observation.consumed(pending_round_messages, self._runtime)
         if pending_round_messages:
             from src.decision_replay.recorder import record
             record('scheduler', 'scheduler.messages_merged', 'merged', 'continuation_messages',
@@ -1051,11 +1064,13 @@ class MaisakaReasoningEngine:
         from src.services.owner_admin.system_runtime import account_for_session, session_paused, stale_lease
 
         begin_turn(self._runtime)
+        self._observation.reset(queued_trigger)
         message_triggered, timeout_triggered, proactive_triggered = self._drain_ready_turn_triggers(queued_trigger)
         if proactive_triggered:
             self._runtime._clear_focus_cooldown_wakeup_scheduled()
         if session_paused(self._runtime.session_id):
             self._runtime._mark_message_turn_unscheduled()
+            self._observation.record(self._runtime, "not_started", "not_observed", "owner_soft_paused")
             return TurnStartContext([], None, False, False, True)
         silent_reply_frequency = self._runtime._is_reply_frequency_silent()
 
@@ -1065,6 +1080,7 @@ class MaisakaReasoningEngine:
             and not silent_reply_frequency
         ):
             self._runtime._mark_message_turn_unscheduled()
+            self._observation.record(self._runtime, "not_started", "not_observed", "wait_still_active")
             logger.debug(f"{self._runtime.log_prefix} 当前仍处于 wait 状态，忽略消息触发并继续等待超时")
             return TurnStartContext([], None, timeout_triggered, proactive_triggered, silent_reply_frequency)
 
@@ -1073,10 +1089,12 @@ class MaisakaReasoningEngine:
             self._runtime._mark_message_turn_unscheduled()
 
         if session_paused(self._runtime.session_id) or stale_lease(account_for_session(self._runtime.session_id)):
+            self._observation.record(self._runtime, "not_started", "not_observed", "paused_or_stale_after_quiet")
             return TurnStartContext([], None, False, False, True)
         # 安静期内仍可能收到真实 @；收集消息前冻结最终批次，不能漏掉这些直接触发。
         begin_turn(self._runtime)
         cached_messages = self._runtime._collect_pending_messages() if self._runtime._has_pending_messages() else []
+        self._observation.consumed(cached_messages, self._runtime)
         continuation_logical_turn_id: str | None = None
         if cached_messages:
             self._runtime._enter_running_state()
@@ -1113,6 +1131,7 @@ class MaisakaReasoningEngine:
             continuation_logical_turn_id = wait_message.logical_turn_id
             self._runtime._chat_history.append(wait_message)
         else:
+            self._observation.record(self._runtime, "not_started", "not_observed", "expired_trigger")
             logger.debug(f"{self._runtime.log_prefix} 消息已由当前内部轮次处理，忽略过期的轮次触发")
             return TurnStartContext([], None, timeout_triggered, proactive_triggered, silent_reply_frequency)
 
@@ -1123,6 +1142,7 @@ class MaisakaReasoningEngine:
             proactive_triggered,
             silent_reply_frequency,
             continuation_logical_turn_id,
+            self._observation.references,
         )
 
     async def _finalize_cycle(
@@ -1186,25 +1206,32 @@ class MaisakaReasoningEngine:
 
     async def run_loop(self) -> None:
         """独立消费消息批次，并执行对应的内部思考轮次。"""
+        from src.services.priority_at_reply_service import priority_at_reply_service
+
         try:
             while self._runtime._running:
+                priority_at_reply_service._rights.finish_normal(self._runtime)
                 queued_trigger = await self._runtime._internal_turn_queue.get()
+                self._observation.reset(queued_trigger)
                 if not focus_mode_manager.can_decide(
                     self._runtime.session_id,
                     is_group_chat=self._runtime.chat_stream.is_group_session,
                 ):
                     self._runtime._mark_message_turn_unscheduled()
+                    self._observation.record(self._runtime, "not_started", "not_observed", "focus_unavailable")
                     logger.debug(f"{self._runtime.log_prefix} 当前不在 focus 状态，忽略已排队的 Maisaka 触发")
                     continue
 
                 turn_start_context = await self._prepare_turn_start_context(queued_trigger)
                 if turn_start_context.trigger_message is None:
+                    self._observation.record(self._runtime, "not_started", "not_observed", "prepare_skipped")
                     continue
 
                 cached_messages = turn_start_context.cached_messages
                 trigger_message = turn_start_context.trigger_message
 
                 if turn_start_context.silent_reply_frequency:
+                    self._observation.record(self._runtime, "not_started", "not_observed", "silent_consumption")
                     await self._handle_silent_turn(
                         cached_messages=cached_messages,
                         timeout_triggered=turn_start_context.timeout_triggered,
@@ -1220,6 +1247,9 @@ class MaisakaReasoningEngine:
                         self._runtime.session_id, str(queued_trigger),
                         self._active_logical_turn_id))
                     self._runtime._decision_replay_turn_id = None
+                    self._observation.accept_context(turn_start_context)
+                    self._observation.logical_turn_id = self._active_logical_turn_id
+                    self._observation.record(self._runtime, "turn_bound", "observed", "engine_turn_identity")
                     record('planner', 'planner.started', 'started', 'scheduled',
                            message_ids=[m.message_id for m in cached_messages],
                            detail={'session_name': self._runtime.session_name,
@@ -1247,6 +1277,8 @@ class MaisakaReasoningEngine:
                             trigger_message = pending_round_messages[-1]
 
                         cycle_detail, round_text = await self._start_cycle_round(round_index)
+                        self._observation.bind_cycle(str(cycle_detail.cycle_id))
+                        self._observation.record(self._runtime, "cycle_bound", "observed", "internal_cycle")
                         state = CycleRuntimeState(round_number=round_index + 1)
                         try:
                             await self._refresh_visual_placeholders_for_cycle(cycle_detail)
@@ -1305,11 +1337,21 @@ class MaisakaReasoningEngine:
                             trigger_message = interrupt_result.retry_messages[-1]
                             continue
                         finally:
+                            import sys
+
+                            cycle_error = sys.exc_info()[0]
+                            self._observation.record(
+                                self._runtime, "cycle_ended",
+                                "interrupted" if state.planner_interrupted else ("unknown" if cycle_error else "observed"),
+                                "cancelled" if cycle_error is asyncio.CancelledError else (
+                                    "exception" if cycle_error else state.cycle_end.reason),
+                            )
                             state.cycle_end = await self._finalize_cycle(
                                 cycle_detail=cycle_detail,
                                 round_index=round_index,
                                 state=state,
                             )
+                            self._observation.record(self._runtime, "cycle_finalized", "observed", state.cycle_end.reason)
                             replay_end_reason = state.cycle_end.reason
                             if not state.planner_interrupted:
                                 round_index += 1
@@ -1317,6 +1359,13 @@ class MaisakaReasoningEngine:
                     from src.decision_replay.recorder import current_trace, record
                     import sys
                     error = sys.exc_info()[0]
+                    self._observation.record(
+                        self._runtime, "execution_ended",
+                        "interrupted" if error is asyncio.CancelledError else ("unknown" if error else "observed"),
+                        "cancelled" if error is asyncio.CancelledError else ("exception" if error else replay_end_reason),
+                    )
+                    self._observation.missing_start(self._runtime, "exception" if error else replay_end_reason)
+                    self._observation.retain_wait(self._runtime)
                     record('planner', 'turn.ended', 'failed' if error else 'completed',
                            'cancelled' if error is asyncio.CancelledError else ('exception' if error else replay_end_reason),
                            detail={'pending_messages': self._runtime._has_pending_messages(),
@@ -1334,9 +1383,11 @@ class MaisakaReasoningEngine:
                         self._regate_pending_after_turn()
                     current_trace.reset(replay_token)
         except asyncio.CancelledError:
+            self._observation.record(self._runtime, "execution_interrupted", "unknown", "loop_cancelled")
             self._runtime._log_internal_loop_cancelled()
             raise
         except RespNotOkException as exc:
+            self._observation.record(self._runtime, "execution_interrupted", "unknown", "model_error")
             self._runtime._update_stage_status(
                 "错误",
                 f"模型响应异常 HTTP {exc.status_code} - {exc}",
@@ -1346,9 +1397,13 @@ class MaisakaReasoningEngine:
             )
             raise
         except Exception as exc:
+            self._observation.record(self._runtime, "execution_interrupted", "unknown", "loop_exception")
             self._runtime._update_stage_status("错误", str(exc))
             logger.exception(f"{self._runtime.log_prefix} Maisaka 内部循环发生异常")
             raise
+        finally:
+            priority_at_reply_service._rights.finish_normal(self._runtime)
+
 
     async def _handle_silent_turn(
         self,
@@ -1399,6 +1454,8 @@ class MaisakaReasoningEngine:
             except asyncio.QueueEmpty:
                 break
 
+            self._observation.add_trigger(next_trigger)
+
             if next_trigger == "message":
                 message_triggered = True
                 continue
@@ -1414,6 +1471,7 @@ class MaisakaReasoningEngine:
     def _build_wait_completed_message(self, *, has_new_messages: bool) -> ToolResultMessage:
         """构造 wait 完成后的工具结果消息。"""
         tool_call_id, logical_turn_id, elapsed_seconds, requested_seconds = self._runtime._consume_pending_wait_state()
+        self._observation.resume_wait(tool_call_id, logical_turn_id)
         elapsed_text = f"{elapsed_seconds:.1f} 秒"
         requested_text = f"，原计划等待 {requested_seconds:.1f} 秒" if requested_seconds is not None else ""
         content = (
@@ -2352,7 +2410,10 @@ class MaisakaReasoningEngine:
             )
             tool_started_at = time.time()
             is_unexpanded_tool = not self._runtime.is_action_tool_currently_available(invocation.tool_name)
-            result = await self._runtime._tool_registry.invoke(invocation, execution_context)
+            with reply_flow.planner_scope(self._observation, self._runtime, invocation):
+                if invocation.tool_name == "reply" and reply_flow.recorder.store.policy.enabled:
+                    reply_flow.event(self._runtime.session_id, "reply_selected", "observed", "planner_tool_dispatch")
+                result = await self._runtime._tool_registry.invoke(invocation, execution_context)
             if invocation.tool_name != "wait":
                 self._runtime._reset_consecutive_wait_count(f"tool:{invocation.tool_name}")
             if is_unexpanded_tool and not result.success:

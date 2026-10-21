@@ -71,6 +71,7 @@
       "dataTransfer": "Data Management",
       "statistics": "Detailed Statistics",
       "decisionReplay": "Decision Replay",
+      "decisionObservation": "Decision Observation",
       "replyEffects": "Reply Effects",
       "logViewer": "Log Viewer",
       "reasoningProcess": "Reasoning Process",

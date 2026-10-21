@@ -9,6 +9,7 @@ import time
 from .simulated_typing import wait_for_simulated_typing
 
 from src.decision_replay.recorder import traced_replyer
+from src.decision_observation.reply_flow import observe_generation
 from src.chat.message_receive.chat_manager import BotChatSession
 from src.chat.message_receive.message import SessionMessage
 from src.chat.utils.utils import get_chat_type_and_target_info, is_bot_self
@@ -132,7 +133,7 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
                 prompt_lines.append(emotion_suffix)
             return "\n".join(prompt_lines)
         except Exception as exc:
-            logger.warning(f"构建 Maisaka 人设提示词失败: {exc}")
+            logger.warning(f"构建 Maisaka 人设提示词失败: {type(exc).__name__}")
             return "你的名字是麦麦。\n是人类。"
 
     def _select_reply_style(self) -> str:
@@ -663,7 +664,7 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
         if not normalized_reply_style:
             return ""
         if normalized_reply_style not in style_messages:
-            logger.warning(f"reply 工具返回了未知的回复风格 {normalized_reply_style!r}，按默认「正常回复」处理")
+            logger.warning("reply 工具返回了未知的回复风格，按默认「正常回复」处理")
             return style_messages["正常回复"]
         return style_messages[normalized_reply_style]
 
@@ -828,7 +829,7 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
                 reply_tool_args=dict(reply_tool_args),
             )
         except Exception as exc:
-            logger.warning(f"Maisaka 回复器 before_model_request Hook 调用失败，将继续使用当前请求消息: {exc}")
+            logger.warning(f"Maisaka 回复器 before_model_request Hook 调用失败，将继续使用当前请求消息: {type(exc).__name__}")
             return request_messages
 
         raw_items = hook_result.kwargs.get("items")
@@ -843,7 +844,7 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
                 original_items=request_messages,
             )
         except Exception as exc:
-            logger.warning(f"Hook maisaka.replyer.before_model_request 返回的 items 无法反序列化，已忽略: {exc}")
+            logger.warning(f"Hook maisaka.replyer.before_model_request 返回的 items 无法反序列化，已忽略: {type(exc).__name__}")
             return request_messages
 
     def _resolve_enable_visual_message(self, model_info: Optional[ModelInfo] = None) -> bool:
@@ -1041,6 +1042,7 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
             result.output_items = preview.payload["output_items"]
 
     @traced_replyer
+    @observe_generation
     async def generate_reply_with_context(
         self,
         extra_info: str = "",
@@ -1070,7 +1072,7 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
         del chosen_actions
         del extra_info
         del from_plugin
-        del log_reply
+        # log_reply 控制常规生成摘要；任何设置都不记录正文或 Prompt。
         del reply_time_point
         del unknown_words
 
@@ -1104,9 +1106,7 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
                 reply_tool_args=active_reply_tool_args,
             )
         except Exception as exc:
-            import traceback
-
-            logger.error(f"构建回复上下文失败: {exc}\n{traceback.format_exc()}")
+            logger.error(f"构建回复上下文失败: {type(exc).__name__}")
             result.error_message = f"构建回复上下文失败: {exc}"
             result.metrics = GenerationMetrics(
                 overall_ms=round((time.perf_counter() - overall_started_at) * 1000, 2),
@@ -1172,7 +1172,7 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
                 if isinstance(before_request_kwargs.get("reply_tool_args"), dict):
                     active_reply_tool_args = dict(before_request_kwargs["reply_tool_args"])
             except Exception as exc:
-                logger.warning(f"Maisaka 回复器 before_request Hook 调用失败，将继续使用当前请求参数: {exc}")
+                logger.warning(f"Maisaka 回复器 before_request Hook 调用失败，将继续使用当前请求参数: {type(exc).__name__}")
                 before_request_kwargs = {"extra_prompt": plugin_reply_prompt}
 
             active_task_name = str(before_request_kwargs.get("task_name") or default_task_name).strip()
@@ -1200,9 +1200,7 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
                     think_level=think_level,
                 )
             except Exception as exc:
-                import traceback
-
-                logger.error(f"构建提示词失败: {exc}\n{traceback.format_exc()}")
+                logger.error(f"构建提示词失败: {type(exc).__name__}")
                 result.error_message = f"构建提示词失败: {exc}"
                 result.metrics = GenerationMetrics(
                     overall_ms=round((time.perf_counter() - overall_started_at) * 1000, 2),
@@ -1283,11 +1281,9 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
                 ):
                     reasoning_continuation_count = 1
                     continuation_reasoning = generation_result.reasoning.strip()
-                    continuation_model_name = generation_result.model_name.strip() or active_model_name
                     logger.warning(
                         "Maisaka 回复器仅收到推理内容，将在本次上下文中续写一次: "
-                        f"session={preview_chat_id} model={continuation_model_name or 'unknown'} "
-                        f"reasoning={self._normalize_content(continuation_reasoning, limit=300)!r}"
+                        f"reasoning_length={len(continuation_reasoning)}"
                     )
                     generation_result, request_messages = await self._continue_reasoning_only_response(
                         active_model=active_model,
@@ -1302,17 +1298,15 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
                     aggregate_prompt_tokens += generation_result.prompt_tokens
                     aggregate_completion_tokens += generation_result.completion_tokens
                     aggregate_total_tokens += generation_result.total_tokens
-                    logger.info(
-                        "Maisaka 回复器推理续写完成: "
-                        f"session={preview_chat_id} response={self._normalize_content(generation_result.response, limit=300)!r}"
-                    )
+                    if log_reply:
+                        logger.info(f"Maisaka 回复器推理续写完成: response_length={len(generation_result.response or '')}")
                 generation_result.generation_attempts = tuple(
                     replace(attempt, workflow_attempt=retry_count + 1)
                     for attempt in generation_result.generation_attempts
                 )
                 all_generation_attempts.extend(generation_result.generation_attempts)
             except Exception as exc:
-                logger.exception("Maisaka 回复器调用失败")
+                logger.error(f"Maisaka 回复器调用失败: error_type={type(exc).__name__}")
                 result.error_message = str(exc)
                 result.metrics = GenerationMetrics(
                     prompt_ms=prompt_ms,
@@ -1352,7 +1346,7 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
                 )
                 after_response_kwargs = after_response_result.kwargs
             except Exception as exc:
-                logger.warning(f"Maisaka 回复器 after_response Hook 调用失败，将继续使用当前回复: {exc}")
+                logger.warning(f"Maisaka 回复器 after_response Hook 调用失败，将继续使用当前回复: {type(exc).__name__}")
                 after_response_kwargs = {}
             final_output_items = generation_result.output_items
             raw_output_items = after_response_kwargs.get("output_items")
@@ -1369,7 +1363,7 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
                     response_text = get_response_text(final_output_items).strip()
                 except Exception as exc:
                     logger.warning(
-                        f"Hook maisaka.replyer.after_response 返回的 output_items 无法反序列化，已忽略: {exc}"
+                        f"Hook maisaka.replyer.after_response 返回的 output_items 无法反序列化，已忽略: {type(exc).__name__}"
                     )
             elif "response" in after_response_kwargs:
                 hook_modified_response = str(after_response_kwargs.get("response") or "").strip()
@@ -1387,9 +1381,8 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
                     hook_rewrite_events.append(rewrite_event)
                     logger.warning(
                         "Maisaka 回复器回复被 Hook 改写: "
-                        f"session={preview_chat_id} attempt={retry_count + 1} "
-                        f"before={self._normalize_content(hook_original_response, limit=300)!r} "
-                        f"after={self._normalize_content(hook_modified_response, limit=300)!r}"
+                        f"attempt={retry_count + 1} before_length={len(hook_original_response)} "
+                        f"after_length={len(hook_modified_response)}"
                     )
                 response_text = hook_modified_response
             generation_result.output_items = tuple(final_output_items)
@@ -1410,17 +1403,14 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
                 if retry_count >= REPLYER_MAX_HOOK_RETRIES:
                     result.error_message = "回复持续包含内部上下文标签，已拒绝发送。"
                     response_text = ""
-                    logger.error(f"{preview_chat_id}: {result.error_message}")
+                    logger.error("回复持续包含内部上下文标签，已拒绝发送")
                     break
                 retry_constraints.append(
                     "上一版输出包含内部上下文标签。请重新生成自然聊天正文，不输出发言内容、引用消息、"
                     "msg_id、消息类型、参考消息或标签记忆等元信息标记，也不要复述被拒绝的格式。"
                 )
                 retry_count += 1
-                logger.warning(
-                    f"{preview_chat_id}: 回复包含内部标签 {internal_label.group(0).strip()!r}，"
-                    f"重新生成 {retry_count}/{REPLYER_MAX_HOOK_RETRIES}"
-                )
+                logger.warning(f"回复包含内部标签，重新生成 {retry_count}/{REPLYER_MAX_HOOK_RETRIES}")
                 continue
             retry_requested = self._coerce_hook_bool(after_response_kwargs.get("retry"), default=False)
             matched_regex = str(after_response_kwargs.get("matched_regex") or "").strip()
@@ -1455,22 +1445,14 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
                 retry_count += 1
                 logger.warning(
                     "Maisaka 回复器触发重生成: "
-                    f"session={preview_chat_id} attempt={retry_count} "
                     f"retry={retry_count}/{REPLYER_MAX_HOOK_RETRIES} "
-                    f"constraint={'有' if retry_reason else '无'} "
-                    f"rule={matched_regex or 'unknown'} "
-                    f"pattern={matched_regex_pattern or 'unknown'} "
-                    f"reason={retry_log_reason} "
-                    f"rejected={self._normalize_content(response_text, limit=300)!r}"
+                    f"constraint_present={bool(retry_reason)} response_length={len(response_text)}"
                 )
                 continue
             if retry_requested:
                 logger.warning(
-                    f"Maisaka 回复器已达到重生成上限，将使用最后一次回复: "
-                    f"session={preview_chat_id} retry={retry_count}/{REPLYER_MAX_HOOK_RETRIES} "
-                    f"rule={matched_regex or 'unknown'} "
-                    f"pattern={matched_regex_pattern or 'unknown'} "
-                    f"response={self._normalize_content(response_text, limit=300)!r}"
+                    "Maisaka 回复器已达到重生成上限，将使用最后一次回复: "
+                    f"retry={retry_count}/{REPLYER_MAX_HOOK_RETRIES} response_length={len(response_text)}"
                 )
             break
 
@@ -1526,13 +1508,14 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
             result.metrics.extra["replyer_retry_constraints"] = list(retry_constraints)
         if hook_rewrite_events:
             result.metrics.extra["replyer_hook_rewrite_events"] = list(hook_rewrite_events)
-        logger.info(
-            "Replyer缓存："
-            f"命中={prompt_cache_hit_tokens}, "
-            f"未命中={prompt_cache_miss_tokens}, "
-            f"命中率={prompt_cache_hit_rate:.2f}%, "
-            f"token使用={generation_result.prompt_tokens}"
-        )
+        if log_reply:
+            logger.info(
+                "Replyer缓存："
+                f"命中={prompt_cache_hit_tokens}, "
+                f"未命中={prompt_cache_miss_tokens}, "
+                f"命中率={prompt_cache_hit_rate:.2f}%, "
+                f"token使用={generation_result.prompt_tokens}"
+            )
 
         if not result.success:
             if not result.error_message:
@@ -1540,17 +1523,16 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
             logger.warning("Maisaka 回复器返回了空内容")
             return finalize(False)
 
-        logger.info(
-            f"Maisaka 回复器生成成功 文本={response_text!r} "
-            f"总耗时ms={result.metrics.overall_ms} 重生成次数={retry_count} "
-            f"推理续写次数={reasoning_continuation_count} "
-            f"已选表达={result.selected_expression_ids!r}"
-        )
-        if retry_count > 0:
+        if log_reply:
             logger.info(
-                "Maisaka 回复器重生成完成: "
-                f"session={preview_chat_id} attempts={retry_count + 1} "
-                f"retry_count={retry_count} final={self._normalize_content(response_text, limit=300)!r}"
+                f"Maisaka 回复器生成成功 response_length={len(response_text)} "
+                f"总耗时ms={result.metrics.overall_ms} 重生成次数={retry_count} "
+                f"推理续写次数={reasoning_continuation_count}"
+            )
+        if retry_count > 0 and log_reply:
+            logger.info(
+                f"Maisaka 回复器重生成完成: attempts={retry_count + 1} "
+                f"retry_count={retry_count} response_length={len(response_text)}"
             )
         result.text_fragments = [response_text]
         if typing_started_at is not None:

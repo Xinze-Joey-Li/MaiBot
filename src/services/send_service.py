@@ -19,6 +19,7 @@ import uuid
 from datetime import datetime
 
 from src.decision_replay.recorder import traced_send
+from src.decision_observation.reply_flow import observe_send
 from src.chat.message_receive.chat_manager import BotChatSession
 from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
 from src.chat.message_receive.message import SessionMessage
@@ -983,6 +984,7 @@ async def _send_via_platform_io(
 
 
 @traced_send
+@observe_send
 async def send_session_message_with_message(
     message: SessionMessage,
     *,
