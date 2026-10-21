@@ -81,6 +81,19 @@ export type ReviewContext = {
   unavailable_message_event_ids?: string[]
   context_status: string
   limitations: string[]
+  target_items?: ReviewContext['items']
+  privacy_replacements?: Record<string, string>
+  machine?: {
+    gate_result: string | null
+    decision_reason: string | null
+    planner?: {
+      status: string
+      evidence_status: string
+      rounds: { decision: string }[]
+      not_started_attempts: number
+    }
+    execution_result: string
+  }
 }
 export const labelNames: Record<Label, string> = {
   should_reply: '应该回复',
@@ -124,10 +137,10 @@ export const annotations = {
       cache: 'no-store',
     }),
   context: (target: Target, page: number) =>
-    authApi.get<ReviewContext>(
-      `${annotationBase}/opportunities/${encodeURIComponent(target.opportunity_id)}/context`,
-      { query: { evaluation_id: target.evaluation_id, page, page_size: 25 }, cache: 'no-store' }
-    ),
+    authApi.get<ReviewContext>(`${path(target)}/review-context`, {
+      query: { ...query(target), page },
+      cache: 'no-store',
+    }),
   save: (target: Target, body: SaveRequest) =>
     authApi.put<SaveResult>(path(target), { body, signal: AbortSignal.timeout(30000) }),
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
@@ -20,6 +20,8 @@ import type {
   SaveRequest,
   Target,
 } from './annotation-api'
+import { machineView, privateText, reviewTargets } from './annotation-presentation'
+import { AnnotationMachineDetails } from './annotation-machine-details'
 
 const selectClass = 'bg-background text-foreground w-full rounded-md border p-2 text-sm'
 const date = (value: number) => new Date(value * 1000).toLocaleString('zh-CN')
@@ -38,12 +40,14 @@ export function AnnotationEditor({
   target,
   onState,
   onSaved,
-  results,
+  active,
+  locate,
 }: {
   target: Target
   onState: (dirty: boolean, busy: boolean) => void
   onSaved: () => void
-  results: React.ReactNode
+  active: boolean
+  locate: number
 }) {
   const [current, setCurrent] = useState<Current | null>(null)
   const [draft, setDraft] = useState<Draft>(empty)
@@ -63,6 +67,24 @@ export function AnnotationEditor({
   const [context, setContext] = useState<ReviewContext | null>(null)
   const [contextPage, setContextPage] = useState(1)
   const [contextError, setContextError] = useState('')
+  const [expanded, setExpanded] = useState(false)
+  const contextAnchor = useRef<HTMLDivElement>(null)
+  const text = useMemo(
+    () => privateText(context?.privacy_replacements),
+    [context?.privacy_replacements]
+  )
+  const targets = reviewTargets(current?.target, context)
+  const machine = machineView(context?.machine)
+  const ready = !!context && !!current
+  useEffect(() => {
+    if (!active || !ready) return
+    // scrollIntoView handles nested scroll containers; scroll margin clears the fixed header.
+    const frame = requestAnimationFrame(() => {
+      contextAnchor.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+      contextAnchor.current?.focus({ preventScroll: true })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [active, ready, locate])
   const dirty = JSON.stringify(draft) !== JSON.stringify(baseline) || request !== null
   useEffect(() => {
     onState(dirty, busy)
@@ -211,45 +233,65 @@ export function AnnotationEditor({
     : 0
   return (
     <section className="space-y-4" aria-label="人工批改详情">
-      <Card>
-        <CardHeader>
-          <CardTitle>决策点身份</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2 text-sm break-all">
-          <p>
-            机会 {target.opportunity_id} ·{' '}
-            {target.evaluation_id
-              ? `Evaluation ${target.evaluation_id}`
-              : '独立机会（无 Evaluation）'}
-          </p>
+      <Card className="gap-0 overflow-hidden py-0">
+        <CardHeader className="border-b py-5">
+          <CardTitle>人工批改</CardTitle>
           {current && (
-            <>
-              <p>
-                评估序号 {current.target.evaluation_sequence ?? '不适用'} · 特征版本{' '}
-                {current.target.feature_version ?? '不适用'} · 决策时间{' '}
-                {date(current.target.context_boundary_at)}
-              </p>
-              <p>
-                快照摘要 {current.target.feature_snapshot_hash ?? '不适用'} · 评估事实摘要{' '}
-                {current.target.evaluation_facts_hash ?? '不适用'}
-              </p>
-              <p>
-                当前状态：{stateNames[current.annotation_state]} · 当前版本{' '}
-                {current.current_revision}
-              </p>
-            </>
+            <p className="text-muted-foreground text-sm">
+              {target.evaluation_id
+                ? `本轮第 ${current.target.evaluation_sequence ?? '?'} 次回复判断`
+                : '回复机会级补充判断'}{' '}
+              · {date(current.target.context_boundary_at)}
+            </p>
           )}
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>A · 决策前上下文</CardTitle>
+          {current && (
+            <p className="text-muted-foreground text-xs">
+              当前状态：{stateNames[current.annotation_state]} · 当前版本 {current.current_revision}
+            </p>
+          )}
         </CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-muted-foreground text-sm">
-            A 是 Evaluation 快照成员；B
-            仅为重建参考；机会关联不是评估快照。正文是当前可读记录，不是冻结
-            Prompt。仅使用接口给出的决策前参考消息。
+        <div
+          ref={contextAnchor}
+          tabIndex={-1}
+          className="scroll-mt-24 space-y-3 px-6 pt-5 outline-none"
+          aria-label="决策前上下文定位"
+        >
+          <h3 className="mb-3 font-semibold">A · 决策前上下文</h3>
+          <div className="mb-4 space-y-2 rounded-lg border border-amber-400 bg-amber-50 p-4 text-amber-950 dark:bg-amber-950/30 dark:text-amber-100">
+            <p className="font-semibold">本次判断目标：机器人是否应该回复下面这句话？</p>
+            {targets.items.length === 0 ? (
+              <p>
+                目标消息无法唯一确认
+                {targets.count > 0 ? `（记录关联 ${targets.count} 条候选消息，证据尚不完整）` : ''}
+                。
+              </p>
+            ) : (
+              <>
+                {targets.items.length > 1 && (
+                  <p>
+                    本次判断范围包含 {targets.items.length}{' '}
+                    条候选消息，未记录唯一触发句；请结合整组消息判断。
+                  </p>
+                )}
+                {target.target_type === 'opportunity' && (
+                  <p>以下为回复机会关联范围，不代表单次回复判断快照。</p>
+                )}
+                {targets.items.map((item) => (
+                  <div key={item.message_event_id} className="space-y-1">
+                    <p className="font-medium break-words whitespace-pre-wrap">
+                      {item.text || '正文为空 / 不可恢复'}
+                    </p>
+                    <p className="text-xs">
+                      发送者：{item.name ?? '未知发送者'} · 时间：{date(item.event_timestamp)}
+                    </p>
+                    {item.text_truncated && <p className="text-xs">正文已截断。</p>}
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+          <p className="text-muted-foreground mb-3 text-xs">
+            黄色消息属于本次判断范围；其他消息仅作参考。正文来自当前可读记录，不代表当时完整输入。匿名代号仅在本回复机会内使用。
           </p>
           {contextError && <p role="alert">{contextError}</p>}
           {!context && !contextError && <p>加载上下文…</p>}
@@ -265,20 +307,29 @@ export function AnnotationEditor({
                     : '当前页身份和正文可读；尚未核验全部页面，保存时由服务端保守复核。'}
               </p>
               {context.unavailable_message_event_ids?.length ? (
-                <p>缺失观察消息：{context.unavailable_message_event_ids.join('、')}</p>
+                <p>缺失关联消息：{context.unavailable_message_event_ids.length} 条</p>
               ) : null}
               {context.items.map((item, index) => (
                 <article
-                  className="bg-muted rounded-md p-3 text-sm"
+                  className={
+                    targets.ids.has(item.message_event_id)
+                      ? 'rounded-md border border-amber-400 bg-amber-50 p-3 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-100'
+                      : 'bg-muted rounded-md p-3 text-sm'
+                  }
+                  data-review-target={targets.ids.has(item.message_event_id) || undefined}
                   key={`${item.membership}:${item.message_event_id}:${index}`}
                 >
                   <p className="text-muted-foreground text-xs">
-                    {item.membership === 'evaluation_member'
-                      ? 'A · 本次评估成员'
-                      : item.membership === 'reference_only'
-                        ? 'B · 重建参考上下文'
-                        : '机会关联（非评估快照）'}{' '}
-                    · {date(item.event_timestamp)} · {item.name ?? '姓名不可用'}
+                    {targets.ids.has(item.message_event_id)
+                      ? targets.items.length === 1
+                        ? '目标消息'
+                        : '判断范围 · 候选消息'
+                      : item.membership === 'evaluation_member'
+                        ? '决策前消息'
+                        : item.membership === 'reference_only'
+                          ? '重建参考上下文'
+                          : '回复机会关联消息'}{' '}
+                    · {date(item.event_timestamp)} · {item.name ?? '未知发送者'}
                   </p>
                   <p className="mt-2 break-words whitespace-pre-wrap">
                     {item.status === 'available'
@@ -289,11 +340,6 @@ export function AnnotationEditor({
                 </article>
               ))}
               {!context.items.length && <p>当前页无可恢复上下文。证据不足时可选择无法判断。</p>}
-              {context.limitations.map((text) => (
-                <p className="text-muted-foreground text-xs" key={text}>
-                  {text}
-                </p>
-              ))}
               <div className="flex flex-wrap gap-3">
                 <Button
                   variant="outline"
@@ -315,13 +361,9 @@ export function AnnotationEditor({
               </div>
             </>
           )}
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>B · 人工判断</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+        </div>
+        <div className="mt-5 space-y-4 border-t px-6 py-5">
+          <h3 className="font-semibold">B · 人工判断</h3>
           <p className="text-sm">
             仅判断：基于这个决策点可获得的上下文，大肥鱼是否应该发言？不评价回复文采、发送成败或群友反馈。
           </p>
@@ -350,8 +392,8 @@ export function AnnotationEditor({
               id={`reason-${target.evaluation_id ?? target.opportunity_id}`}
               autoResize={false}
               rows={4}
-              disabled={busy || !current}
-              value={draft.reason}
+              disabled={busy || !current || !context?.privacy_replacements}
+              value={context?.privacy_replacements ? text(draft.reason) : ''}
               onChange={(event) => edit({ reason: event.target.value })}
             />
           </label>
@@ -426,21 +468,70 @@ export function AnnotationEditor({
                 服务器当前版本 {latest.current_revision} ·{' '}
                 {latest.annotation ? labelNames[latest.annotation.label] : '未批改'}
               </p>
-              <p className="whitespace-pre-wrap">{latest.annotation?.reason ?? '无理由'}</p>
+              <p className="whitespace-pre-wrap">
+                {context?.privacy_replacements
+                  ? text(latest.annotation?.reason ?? '无理由')
+                  : '匿名化信息尚不可用'}
+              </p>
             </div>
           )}
           {request && (
             <p className="text-muted-foreground text-xs break-all">
-              待确认请求 {request.idempotency_key} · 基于版本 {request.expected_revision}
+              待确认提交 · 基于批改版本 {request.expected_revision}
               。不自动重试；编辑内容会开始新的提交。
             </p>
           )}
-        </CardContent>
+        </div>
+        <div className="space-y-4 border-t px-6 py-5">
+          <h3 className="font-semibold">C · 机器判断</h3>
+          <div className="bg-muted/40 space-y-2 rounded-lg border p-4 text-sm">
+            <p>
+              <strong>门控结果：</strong>
+              {machine.gate}
+            </p>
+            <p>
+              <strong>Planner 决策：</strong>
+              {machine.planner}
+            </p>
+            <div className="space-y-1">
+              <strong>主要判断原因：</strong>
+              <p>门控原因：{machine.gateReason}</p>
+              <p>{machine.plannerReason}</p>
+            </div>
+            <p>
+              <strong>最终执行结果：</strong>
+              {machine.execution}
+            </p>
+            <p className="text-muted-foreground text-xs">
+              门控、规划工具选择与发送结果分别取证，不是人工判断的标准答案。规划仅汇总可独立关联本次判断的已观察轮次；未执行仅指明确记录的调度尝试，不能证明所有历史尝试均未执行。
+            </p>
+          </div>
+          <details onToggle={(event) => setExpanded(event.currentTarget.open)}>
+            <summary className="cursor-pointer rounded-md border p-3 text-sm font-medium">
+              展开完整决策细节
+            </summary>
+            {expanded && active && context?.privacy_replacements && (
+              <>
+                <pre className="bg-muted mt-3 max-h-96 overflow-auto rounded p-3 text-xs whitespace-pre-wrap">
+                  {text(
+                    JSON.stringify(
+                      {
+                        target: current?.target,
+                        machine: context.machine,
+                        context: { ...context, privacy_replacements: undefined },
+                      },
+                      null,
+                      2
+                    )
+                  )}
+                </pre>
+                <AnnotationMachineDetails target={target} text={text} />
+              </>
+            )}
+            {!context?.privacy_replacements && <p>匿名化信息尚不可用，暂不能安全显示原始详情。</p>}
+          </details>
+        </div>
       </Card>
-      <details className="rounded-lg border p-4">
-        <summary className="cursor-pointer font-medium">C · 展开实际决策与执行结果</summary>
-        {results}
-      </details>
       <Card>
         <CardHeader>
           <CardTitle>版本历史（只读）</CardTitle>
@@ -457,10 +548,14 @@ export function AnnotationEditor({
               <p>
                 {item.actor_id === 'webui:shared-admin'
                   ? 'Dashboard 管理员（共享主体）'
-                  : item.actor_id}
+                  : '批改管理员'}
               </p>
               <p>{qualityNames[item.context_quality]}</p>
-              <p className="break-words whitespace-pre-wrap">{item.reason ?? '未填写理由'}</p>
+              <p className="break-words whitespace-pre-wrap">
+                {context?.privacy_replacements
+                  ? text(item.reason ?? '未填写理由')
+                  : '匿名化信息尚不可用'}
+              </p>
             </article>
           ))}
           {history && !history.total && <p>暂无保存历史。</p>}

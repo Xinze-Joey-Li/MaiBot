@@ -6,16 +6,14 @@ import type { Current, Revision, SaveRequest, TargetRow } from './annotation-api
 
 const router = vi.hoisted(() => ({ blocker: vi.fn() }))
 vi.mock('@tanstack/react-router', () => ({ useBlocker: router.blocker }))
-vi.mock('./decision-observation', () => ({
-  OpportunityDetail: ({
-    opportunityId,
-    initialEvaluation,
+vi.mock('./annotation-machine-details', () => ({
+  AnnotationMachineDetails: ({
+    target,
   }: {
-    opportunityId: string
-    initialEvaluation: string
+    target: { opportunity_id: string; evaluation_id: string }
   }) => (
     <p>
-      真实只读结果 {opportunityId} / {initialEvaluation}
+      真实只读结果 {target.opportunity_id} / {target.evaluation_id}
     </p>
   ),
 }))
@@ -94,11 +92,28 @@ beforeEach(() => {
   currentHandler = undefined
   historyTotal = 0
   contexts = {
+    privacy_replacements: {},
+    target_items: [
+      {
+        message_event_id: 'm1',
+        status: 'available',
+        text: '合成决策前消息',
+        name: '群友 A17',
+        event_timestamp: 90,
+        membership: 'evaluation_member',
+      },
+    ],
+    machine: {
+      gate_result: 'pass',
+      decision_reason: 'dynamic_trigger',
+      execution_result: 'unknown',
+    },
     items: [
       {
         message_event_id: 'm1',
         membership: 'evaluation_member',
         status: 'available',
+        name: '群友 A17',
         text: '合成决策前消息',
         event_timestamp: 90,
       },
@@ -131,7 +146,7 @@ beforeEach(() => {
         page: Number(url.searchParams.get('page')),
         page_size: 25,
       })
-    if (url.pathname.endsWith('/context')) return json(contexts)
+    if (url.pathname.endsWith('/review-context')) return json(contexts)
     if (url.pathname.endsWith('/history'))
       return json({
         items: [...versions.values()].reverse(),
@@ -162,8 +177,15 @@ beforeEach(() => {
 })
 async function open(id = 'e1') {
   render(<DecisionAnnotations onClose={vi.fn()} />)
-  fireEvent.click(await screen.findByRole('button', { name: `批改 ${id}` }))
-  await screen.findByText('当前状态：未批改 · 当前版本 0')
+  fireEvent.click(
+    await screen.findByRole('button', {
+      name:
+        id === 'o1'
+          ? '开始批改：回复机会级补充判断'
+          : `开始批改：本轮第 ${id === 'e2' ? 2 : 1} 次回复判断`,
+    })
+  )
+  await screen.findByText(/当前状态：.*当前版本/)
 }
 function choose(label = '应该回复', reason?: string) {
   fireEvent.click(screen.getByRole('radio', { name: label }))
@@ -177,6 +199,68 @@ async function saved() {
   fireEvent.click(screen.getByRole('button', { name: '保存判断' }))
   await screen.findByText(/保存已确认/)
 }
+
+describe('C phase semantics without changing human labels', () => {
+  it('shows Gate pass and Planner wait independently after B, then saves a contrary human judgment', async () => {
+    contexts = {
+      ...contexts,
+      machine: {
+        gate_result: 'pass',
+        decision_reason: 'dynamic_trigger',
+        execution_result: 'not_observed',
+        planner: {
+          status: 'observed',
+          evidence_status: 'tool_selection',
+          rounds: [{ decision: 'wait' }],
+          not_started_attempts: 0,
+        },
+      },
+    }
+    await open()
+    const c = screen.getByRole('heading', { name: 'C · 机器判断' }).parentElement!
+    expect(c).toHaveTextContent('门控结果：通过门控，允许进入后续规划')
+    expect(c).toHaveTextContent('Planner 决策：决定等待')
+    expect(c).toHaveTextContent('门控原因：动态门控允许进入后续回复规划。')
+    expect(c).toHaveTextContent('未记录可确认的 Planner 判断原因')
+    expect(c).toHaveTextContent('未观察到发送（不代表确定未发送）')
+    expect(c).not.toHaveTextContent('应该回复')
+    const b = screen.getByText('B · 人工判断')
+    expect(b.compareDocumentPosition(c) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getAllByRole('radio')).toHaveLength(3)
+    expect(screen.getByRole('radio', { name: '应该回复' })).not.toBeChecked()
+    choose('应该回复', '人工认为应当回复，不等同于机器选择')
+    await saved()
+    expect(requests[0].label).toBe('should_reply')
+    expect(requests[0].evaluation_id).toBe('e1')
+  })
+  it('does not reuse the previous target Planner result when changing evaluations', async () => {
+    contexts = {
+      ...contexts,
+      machine: {
+        gate_result: 'pass',
+        decision_reason: null,
+        execution_result: 'unknown',
+        planner: {
+          status: 'observed',
+          evidence_status: 'tool_selection',
+          rounds: [{ decision: 'wait' }],
+          not_started_attempts: 0,
+        },
+      },
+    }
+    await open()
+    expect(await screen.findByText('决定等待（已记录等待工具选择）')).toBeVisible()
+    contexts = {
+      ...contexts,
+      machine: { gate_result: 'reject', decision_reason: null, execution_result: 'unknown' },
+    }
+    fireEvent.click(screen.getByRole('button', { name: '开始批改：本轮第 2 次回复判断' }))
+    expect(await screen.findByText('门控拒绝')).toBeVisible()
+    const c = screen.getByRole('heading', { name: 'C · 机器判断' }).parentElement!
+    expect(c).toHaveTextContent('Planner 决策：无法确认')
+    expect(c).not.toHaveTextContent('决定等待')
+  })
+})
 
 describe('annotation review with the actual cookie HTTP client', () => {
   it.each(['应该回复', '不应该回复', '无法判断'])(
@@ -207,16 +291,20 @@ describe('annotation review with the actual cookie HTTP client', () => {
   it('keeps independent evaluation drafts and identities when switching', async () => {
     await open()
     choose('应该回复', '第一评估草稿')
-    fireEvent.click(screen.getByRole('button', { name: '批改 e2' }))
-    await screen.findByText(/Evaluation e2/)
+    fireEvent.click(screen.getByRole('button', { name: '开始批改：本轮第 2 次回复判断' }))
+    await waitFor(() =>
+      expect(screen.getByRole('region', { name: '人工批改详情' })).toHaveTextContent(
+        '本轮第 2 次回复判断'
+      )
+    )
     expect(
       within(screen.getByRole('region', { name: '人工批改详情' })).getByLabelText(/理由（可选/)
     ).toHaveValue('')
-    expect(screen.getByText(/snapshot-e2/)).toBeInTheDocument()
+    expect(screen.queryByText(/snapshot-e2/)).not.toBeInTheDocument()
     choose('不应该回复')
     await saved()
     expect(requests[0].evaluation_id).toBe('e2')
-    fireEvent.click(screen.getByRole('button', { name: '批改 e1' }))
+    fireEvent.click(screen.getByRole('button', { name: '开始批改：本轮第 1 次回复判断' }))
     expect(
       within(screen.getByRole('region', { name: '人工批改详情' })).getByLabelText(/理由（可选/)
     ).toHaveValue('第一评估草稿')
@@ -289,8 +377,8 @@ describe('annotation review with the actual cookie HTTP client', () => {
     contexts = { ...contexts, unavailable_message_event_ids: ['missing'] }
     await open()
     expect(screen.getByText(/部分上下文缺失，不能声称完整恢复/)).toBeInTheDocument()
-    expect(screen.getByText(/缺失观察消息：missing/)).toBeInTheDocument()
-    expect(screen.getByText('B · 重建参考上下文', { exact: false })).toBeInTheDocument()
+    expect(screen.getByText(/缺失关联消息：1 条/)).toBeInTheDocument()
+    expect(screen.getByText('重建参考上下文', { exact: false })).toBeInTheDocument()
   })
   it('shows critical unavailability while still allowing an uncertain judgment', async () => {
     contexts = { ...contexts, items: [], total: 0, context_status: 'chat_database_unavailable' }
@@ -301,27 +389,28 @@ describe('annotation review with the actual cookie HTTP client', () => {
   })
   it('starts with results collapsed and does not request outcomes', async () => {
     await open()
-    const summary = screen.getByText('C · 展开实际决策与执行结果')
+    const summary = screen.getByText('展开完整决策细节')
     expect(summary.closest('details')).not.toHaveAttribute('open')
     expect(screen.queryByText(/真实只读结果/)).not.toBeInTheDocument()
   })
   it('loads existing read-only results on explicit expansion and load', async () => {
     await open()
-    fireEvent.click(screen.getByText('C · 展开实际决策与执行结果'))
-    fireEvent.click(screen.getByRole('button', { name: '加载结果记录' }))
-    expect(screen.getByText('真实只读结果 o1 / e1')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('展开完整决策细节'))
+    expect(await screen.findByText('真实只读结果 o1 / e1')).toBeInTheDocument()
   })
   it('mounts only the active read-only view while preserving independent drafts', async () => {
     await open()
-    fireEvent.click(screen.getByText('C · 展开实际决策与执行结果'))
-    fireEvent.click(screen.getByRole('button', { name: '加载结果记录' }))
-    fireEvent.click(screen.getByRole('button', { name: '批改 e2' }))
-    await screen.findByText(/Evaluation e2/)
+    fireEvent.click(screen.getByText('展开完整决策细节'))
+    fireEvent.click(screen.getByRole('button', { name: '开始批改：本轮第 2 次回复判断' }))
+    await waitFor(() =>
+      expect(screen.getByRole('region', { name: '人工批改详情' })).toHaveTextContent(
+        '本轮第 2 次回复判断'
+      )
+    )
     expect(screen.queryByText('真实只读结果 o1 / e1')).not.toBeInTheDocument()
     const active = within(screen.getByRole('region', { name: '人工批改详情' }))
-    fireEvent.click(active.getByText('C · 展开实际决策与执行结果'))
-    fireEvent.click(active.getByRole('button', { name: '加载结果记录' }))
-    expect(screen.getByText('真实只读结果 o1 / e2')).toBeInTheDocument()
+    fireEvent.click(active.getByText('展开完整决策细节'))
+    expect(await screen.findByText('真实只读结果 o1 / e2')).toBeInTheDocument()
     expect(screen.getAllByText(/真实只读结果/)).toHaveLength(1)
   })
   it('does not claim success before persistence confirmation and prevents duplicate clicks', async () => {
@@ -423,8 +512,12 @@ describe('annotation review with the actual cookie HTTP client', () => {
     choose('应该回复', '保存第一项')
     fireEvent.click(screen.getByRole('button', { name: '保存判断' }))
     await waitFor(() => expect(requests).toHaveLength(1))
-    fireEvent.click(screen.getByRole('button', { name: '批改 e2' }))
-    await screen.findByText(/Evaluation e2/)
+    fireEvent.click(screen.getByRole('button', { name: '开始批改：本轮第 2 次回复判断' }))
+    await waitFor(() =>
+      expect(screen.getByRole('region', { name: '人工批改详情' })).toHaveTextContent(
+        '本轮第 2 次回复判断'
+      )
+    )
     choose('不应该回复', '第二项草稿')
     versions.set('e1', revision())
     await act(async () =>
@@ -447,17 +540,19 @@ describe('annotation review with the actual cookie HTTP client', () => {
     await open()
     choose('应该回复', '草稿')
     vi.mocked(window.confirm).mockReturnValue(false)
-    fireEvent.click(screen.getByRole('button', { name: '批改 e2' }))
+    fireEvent.click(screen.getByRole('button', { name: '开始批改：本轮第 2 次回复判断' }))
     expect(
       within(screen.getByRole('region', { name: '人工批改详情' })).getByLabelText(/理由（可选/)
     ).toHaveValue('草稿')
-    expect(screen.queryByText(/Evaluation e2/)).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '人工批改详情' })).not.toHaveTextContent(
+      '本轮第 2 次回复判断'
+    )
   })
   it('refreshes the target list without erasing the active draft', async () => {
     await open()
     choose('应该回复', '草稿')
     fireEvent.click(screen.getByRole('button', { name: /刷新待批改列表/ }))
-    await screen.findByRole('button', { name: '批改 e1' })
+    await screen.findByRole('button', { name: '开始批改：本轮第 1 次回复判断' })
     expect(
       within(screen.getByRole('region', { name: '人工批改详情' })).getByLabelText(/理由（可选/)
     ).toHaveValue('草稿')
@@ -483,7 +578,7 @@ describe('annotation review with the actual cookie HTTP client', () => {
     old.evidence.derived_context_quality = 'partial_context'
     versions.set('e1', old)
     render(<DecisionAnnotations onClose={vi.fn()} />)
-    fireEvent.click(await screen.findByRole('button', { name: '批改 e1' }))
+    fireEvent.click(await screen.findByRole('button', { name: '开始批改：本轮第 1 次回复判断' }))
     const select = await screen.findByLabelText(/主动降低证据质量/)
     await waitFor(() => expect(select).toHaveValue('partial_context'))
     expect(within(select).getByRole('option', { name: /身份和当前正文可用/ })).toBeDisabled()
@@ -518,9 +613,13 @@ describe('annotation review with the actual cookie HTTP client', () => {
     const pending = defer<Response>()
     currentHandler = (id) => (id === 'e1' ? pending.promise : json(current(id)))
     render(<DecisionAnnotations onClose={vi.fn()} />)
-    fireEvent.click(await screen.findByRole('button', { name: '批改 e1' }))
-    fireEvent.click(screen.getByRole('button', { name: '批改 e2' }))
-    await screen.findByText(/Evaluation e2/)
+    fireEvent.click(await screen.findByRole('button', { name: '开始批改：本轮第 1 次回复判断' }))
+    fireEvent.click(screen.getByRole('button', { name: '开始批改：本轮第 2 次回复判断' }))
+    await waitFor(() =>
+      expect(screen.getByRole('region', { name: '人工批改详情' })).toHaveTextContent(
+        '本轮第 2 次回复判断'
+      )
+    )
     await act(async () => pending.resolve(json(current('e1', revision(7)))))
     expect(
       within(screen.getByRole('region', { name: '人工批改详情' })).getByText(
@@ -535,5 +634,120 @@ describe('annotation review with the actual cookie HTTP client', () => {
       `${annotationBase}/annotations/o1?target_type=evaluation&evaluation_id=e1`,
       expect.objectContaining({ credentials: 'include', cache: 'no-store' })
     )
+  })
+})
+
+describe('V3 judgment workflow', () => {
+  it('highlights the exact snapshot candidate, not the last message, inside one container', async () => {
+    await open()
+    await screen.findByText(/^目标消息 ·/)
+    const region = screen.getByRole('region', { name: '人工批改详情' })
+    const marked = region.querySelectorAll('[data-review-target]')
+    expect(marked).toHaveLength(1)
+    expect(marked[0]).toHaveTextContent('合成决策前消息')
+    expect(marked[0]).not.toHaveTextContent('合成参考消息')
+    expect(screen.getAllByText(/群友 A17/)).toHaveLength(2)
+    const card = within(region).getByText('A · 决策前上下文').closest('[data-dashboard-card]')
+    expect(card).toContainElement(within(region).getByText('B · 人工判断'))
+    expect(card).toContainElement(within(region).getByText('C · 机器判断'))
+    expect(screen.queryByText('决策点身份')).not.toBeInTheDocument()
+    expect(region).not.toHaveTextContent('snapshot-e1')
+    expect(screen.queryByText(/Evaluation/)).not.toBeInTheDocument()
+  })
+  it('displays and highlights all candidates as a range without inventing a unique trigger', async () => {
+    currentHandler = (id) =>
+      json({ ...current(id), target: { ...metadata(id), message_event_ids: ['m1', 'm2'] } })
+    contexts = {
+      ...contexts,
+      target_items: (contexts.items as { membership: string }[]).map((item) => ({
+        ...item,
+        membership: 'evaluation_member',
+      })),
+    }
+    await open()
+    expect(await screen.findByText(/本次判断范围包含 2 条候选消息/)).toBeInTheDocument()
+    expect(
+      screen.getByRole('region', { name: '人工批改详情' }).querySelectorAll('[data-review-target]')
+    ).toHaveLength(2)
+    expect(screen.queryByText('目标消息')).not.toBeInTheDocument()
+  })
+  it('does not highlight incomplete or ambiguous candidates', async () => {
+    contexts = {
+      ...contexts,
+      target_items: [{ message_event_id: 'm1', status: 'missing_or_ambiguous' }],
+    }
+    await open()
+    expect(await screen.findByText(/目标消息无法唯一确认/)).toBeInTheDocument()
+    expect(
+      screen.getByRole('region', { name: '人工批改详情' }).querySelectorAll('[data-review-target]')
+    ).toHaveLength(0)
+  })
+  it('shows the target preview even when the current context page contains only references', async () => {
+    contexts = {
+      ...contexts,
+      items: [
+        {
+          message_event_id: 'm2',
+          membership: 'reference_only',
+          status: 'available',
+          text: '只有参考',
+          event_timestamp: 80,
+        },
+      ],
+    }
+    await open()
+    expect(await screen.findByText('合成决策前消息')).toBeInTheDocument()
+    expect(screen.queryByText('目标消息')).not.toBeInTheDocument()
+  })
+  it('displays a traceable gate summary by default and keeps full records collapsed', async () => {
+    await open()
+    expect(await screen.findByText(/门控原因：动态门控允许进入后续回复规划。/)).toBeVisible()
+    expect(screen.getByText('结果未知（未确认实际发送结果）')).toBeVisible()
+    const details = screen.getByText('展开完整决策细节').closest('details')!
+    expect(details.open).toBe(false)
+    fireEvent.click(screen.getByText('展开完整决策细节'))
+    expect(await screen.findByText('真实只读结果 o1 / e1')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('展开完整决策细节'))
+    await waitFor(() => expect(screen.queryByText('真实只读结果 o1 / e1')).not.toBeInTheDocument())
+  })
+  it('degrades missing machine evidence without claiming a negative send result', async () => {
+    contexts = { ...contexts, machine: undefined }
+    await open()
+    expect(screen.getByText('门控结果未知')).toBeVisible()
+    expect(screen.getByText('门控原因：未记录具体门控原因')).toBeVisible()
+    expect(screen.getByText('结果未知（未确认实际发送结果）')).toBeVisible()
+  })
+  it('anonymizes persisted reasons, version history, and advanced metadata without rewriting a label-only save', async () => {
+    const saved = { ...revision(), reason: '小明应该得到回复', actor_id: '小明' }
+    versions.set('e1', saved)
+    contexts = {
+      ...contexts,
+      privacy_replacements: { 小明: '群友 A17' },
+      machine: { gate_result: 'pass', decision_reason: '小明被提及', execution_result: 'unknown' },
+    }
+    await open()
+    expect(screen.getByRole('textbox')).toHaveValue('群友 A17应该得到回复')
+    expect(screen.getAllByText('群友 A17应该得到回复')).toHaveLength(2)
+    fireEvent.click(screen.getByText('展开完整决策细节'))
+    await screen.findByText('真实只读结果 o1 / e1')
+    expect(screen.getByRole('region', { name: '人工批改详情' })).not.toHaveTextContent('小明')
+    choose('不应该回复')
+    fireEvent.click(screen.getByRole('button', { name: '保存判断' }))
+    await screen.findByText(/保存已确认/)
+    expect(requests[0].reason).toBe('小明应该得到回复')
+  })
+  it('scrolls to A after loading and when returning to a retained draft', async () => {
+    const scroll = vi.fn()
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scroll,
+    })
+    await open()
+    await waitFor(() => expect(scroll).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' }))
+    expect(document.activeElement).toHaveAttribute('aria-label', '决策前上下文定位')
+    fireEvent.click(screen.getByRole('button', { name: '开始批改：本轮第 2 次回复判断' }))
+    await waitFor(() => expect(scroll).toHaveBeenCalledTimes(2))
+    fireEvent.click(screen.getByRole('button', { name: '开始批改：本轮第 1 次回复判断' }))
+    await waitFor(() => expect(scroll).toHaveBeenCalledTimes(3))
   })
 })

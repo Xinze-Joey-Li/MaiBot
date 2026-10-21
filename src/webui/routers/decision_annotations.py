@@ -13,6 +13,7 @@ from src.decision_observation.annotation_models import AnnotationCommand, Annota
 from src.decision_observation.annotations import AnnotationService
 from src.webui.dependencies import require_auth
 from src.webui.observation_read import ObservationReadRoute
+from .decision_observation import Reader, invoke as read_invoke
 
 router = APIRouter(
     prefix="/api/webui/decision-observation", tags=["decision-annotations"], dependencies=[Depends(require_auth)],
@@ -39,6 +40,23 @@ def annotation_service() -> AnnotationService:
 
 
 Service = Annotated[AnnotationService, Depends(annotation_service)]
+
+
+@router.get("/annotations/{opportunity_id}/review-context")
+def review_context(
+    opportunity_id: str,
+    service: Service,
+    read_service: Reader,
+    target_type: Literal["evaluation", "opportunity"],
+    evaluation_id: Optional[str] = Query(None, min_length=1, max_length=255),
+    page: int = Query(1, ge=1, le=10000),
+):
+    # The original target check and the reader's authorization epoch both apply.
+    invoke(service.current, opportunity_id, target_type, evaluation_id)
+    result = read_invoke(read_service.context, opportunity_id, evaluation_id or "", page=page, annotation_view=True)
+    if result is None:
+        raise HTTPException(404, "批改目标不存在或不在授权范围")
+    return result
 
 
 def invoke(function, *args, **kwargs):

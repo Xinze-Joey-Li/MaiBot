@@ -6,7 +6,6 @@ import { authApi } from '@/lib/http'
 import { annotations, annotationBase, saveError, stateNames, targetKey } from './annotation-api'
 import type { Page, Target, TargetRow } from './annotation-api'
 import { AnnotationEditor } from './decision-annotation-editor'
-import { OpportunityDetail } from './decision-observation'
 
 type State = { dirty: boolean; busy: boolean }
 const selectClass = 'bg-background text-foreground w-full rounded-md border p-2 text-sm'
@@ -14,11 +13,13 @@ const selectClass = 'bg-background text-foreground w-full rounded-md border p-2 
 function EditorSlot({
   target,
   active,
+  locate,
   update,
   saved,
 }: {
   target: Target
   active: boolean
+  locate: number
   update: (key: string, state: State) => void
   saved: () => void
 }) {
@@ -26,35 +27,13 @@ function EditorSlot({
     (dirty: boolean, busy: boolean) => update(targetKey(target), { dirty, busy }),
     [target, update]
   )
-  const [showResults, setShowResults] = useState(false)
-  // Mount the existing read-only view only when requested, preserving all its
-  // Replay links and pagination without loading outcomes before a new judgment.
   return (
     <AnnotationEditor
       target={target}
+      active={active}
+      locate={locate}
       onState={onState}
       onSaved={saved}
-      results={
-        <>
-          <p className="text-muted-foreground mt-3 text-sm">
-            以下是整个机会的执行事实，可能包含其他 Evaluation；不是当前评估的单独结果。上方上下文与人工判断仍绑定当前目标。
-          </p>
-          <Button
-            variant="outline"
-            className="mt-3"
-            onClick={() => setShowResults((value) => !value)}
-          >
-            {showResults ? '收起结果记录' : '加载结果记录'}
-          </Button>
-          {showResults && active && (
-            <OpportunityDetail
-              opportunityId={target.opportunity_id}
-              initialEvaluation={target.evaluation_id ?? ''}
-              embedded
-            />
-          )}
-        </>
-      }
     />
   )
 }
@@ -71,6 +50,7 @@ export function DecisionAnnotations({ onClose }: { onClose: () => void }) {
   const [refresh, setRefresh] = useState(0)
   const [opened, setOpened] = useState<Target[]>([])
   const [active, setActive] = useState('')
+  const [locate, setLocate] = useState(0)
   const states = useRef(new Map<string, State>())
   const update = useCallback((key: string, state: State) => {
     states.current.set(key, state)
@@ -131,7 +111,10 @@ export function DecisionAnnotations({ onClose }: { onClose: () => void }) {
   }, [page, filter, session, hours, end, refresh])
   function select(target: Target) {
     const key = targetKey(target)
-    if (key === active) return
+    if (key === active) {
+      setLocate((value) => value + 1)
+      return
+    }
     const previous = states.current.get(active)
     if (
       previous?.dirty &&
@@ -142,6 +125,7 @@ export function DecisionAnnotations({ onClose }: { onClose: () => void }) {
       values.some((value) => targetKey(value) === key) ? values : [...values, target]
     )
     setActive(key)
+    setLocate((value) => value + 1)
   }
   return (
     <div className="space-y-5">
@@ -244,7 +228,7 @@ export function DecisionAnnotations({ onClose }: { onClose: () => void }) {
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <caption className="text-muted-foreground mb-2 text-left text-xs">
-                每个 Evaluation 独立；无 Evaluation 才使用合法机会级目标。上下文需进入详情核验。
+                每次回复判断独立批改；没有单次判断记录时，使用回复机会级补充判断。点击后自动定位到判断范围。
               </caption>
               <thead>
                 <tr>
@@ -257,7 +241,10 @@ export function DecisionAnnotations({ onClose }: { onClose: () => void }) {
               </thead>
               <tbody>
                 {data?.items.map((item) => (
-                  <tr className="border-t" key={targetKey(item)}>
+                  <tr
+                    className={active === targetKey(item) ? 'bg-primary/5 border-t' : 'border-t'}
+                    key={targetKey(item)}
+                  >
                     <td className="p-2 whitespace-nowrap">
                       {new Date(item.context_boundary_at * 1000).toLocaleString('zh-CN')}
                     </td>
@@ -267,8 +254,8 @@ export function DecisionAnnotations({ onClose }: { onClose: () => void }) {
                     </td>
                     <td className="max-w-56 p-2 break-all">
                       {item.evaluation_id
-                        ? `Evaluation #${item.evaluation_sequence ?? '?'} · ${item.evaluation_id}`
-                        : '机会级 · 无 Evaluation'}
+                        ? `本轮第 ${item.evaluation_sequence ?? '?'} 次回复判断`
+                        : '回复机会级补充判断'}
                     </td>
                     <td className="p-2">{stateNames[item.annotation_state]}</td>
                     <td className="p-2">r{item.current_revision}</td>
@@ -276,9 +263,14 @@ export function DecisionAnnotations({ onClose }: { onClose: () => void }) {
                     <td className="p-2">
                       <Button
                         variant={active === targetKey(item) ? 'secondary' : 'outline'}
+                        aria-label={
+                          item.evaluation_id
+                            ? `开始批改：本轮第 ${item.evaluation_sequence ?? '?'} 次回复判断`
+                            : '开始批改：回复机会级补充判断'
+                        }
                         onClick={() => select(item)}
                       >
-                        批改 {item.evaluation_id ?? item.opportunity_id}
+                        {active === targetKey(item) ? '继续批改' : '开始批改'}
                       </Button>
                     </td>
                   </tr>
@@ -312,6 +304,7 @@ export function DecisionAnnotations({ onClose }: { onClose: () => void }) {
           <EditorSlot
             target={target}
             active={targetKey(target) === active}
+            locate={locate}
             update={update}
             saved={saved}
           />
@@ -319,7 +312,7 @@ export function DecisionAnnotations({ onClose }: { onClose: () => void }) {
       ))}
       {!active && (
         <p className="text-muted-foreground py-6 text-center">
-          选择一个真实决策点开始批改。默认先看上下文与人工判断，执行结果折叠。
+          选择一个真实决策点开始批改。先看判断范围和匿名上下文，机器简版判断直接可见。
         </p>
       )}
     </div>

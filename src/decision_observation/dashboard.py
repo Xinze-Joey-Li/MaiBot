@@ -408,7 +408,8 @@ class DashboardReader:
             return result
 
     @authorized_read
-    def context(self, opportunity_id: str, evaluation_id: str, *, page: int = 1, page_size: int = 25) -> Optional[dict]:
+    def context(self, opportunity_id: str, evaluation_id: str, *, page: int = 1, page_size: int = 25,
+                annotation_view: bool = False) -> Optional[dict]:
         if not self.path.exists():
             return None
         if not 1 <= page <= 10000 or not 1 <= page_size <= 100:
@@ -462,6 +463,10 @@ class DashboardReader:
             # The candidate list itself is SQL paginated; future-received messages never become reference context.
             ids = ids if isinstance(ids, list) else []
             result["expected_associated_count"] = len(set(ids))
+            if annotation_view:
+                from .review_presentation import machine_summary
+
+                result["machine"] = machine_summary(connection, opportunity_id, evaluation_id or None, row)
             result["unavailable_message_event_ids"] = [
                 mid
                 for mid in ids
@@ -489,12 +494,32 @@ class DashboardReader:
                 if "mai_messages" not in tables(chat):
                     result["context_status"] = "chat_table_unavailable"
                     return result
-                for message in messages:
+                if annotation_view:
+                    from .review_presentation import ReviewPrivacy
+
+                    privacy = ReviewPrivacy(chat, row["session_id"], opportunity_id)
+                    result["privacy_replacements"] = privacy.replacements
+                    result["target_items"] = []
+                    # Fetch snapshot candidates separately so the target remains visible
+                    # even when its ordinary context page has not been opened.
+                    candidates = connection.execute(
+                        f"SELECT * FROM message_events WHERE session_id=? AND message_event_id IN ({placeholders}) "
+                        "ORDER BY COALESCE(received_timestamp,event_timestamp),message_event_id",
+                        [row["session_id"], *ids],
+                    ).fetchall()
+                    messages = [(message, False) for message in messages] + [(message, True) for message in candidates]
+                else:
+                    messages = [(message, False) for message in messages]
+                for message, target_preview in messages:
                     # Exact session/platform ID identity only. Duplicates are ambiguous, never newest-row guesses.
                     matches = chat.execute(
                         "SELECT timestamp,user_id,user_nickname,user_cardname,processed_plain_text,is_at,is_mentioned,reply_to FROM mai_messages WHERE session_id=? AND platform='qq' AND message_id=? LIMIT 2",
                         (row["session_id"], message["platform_message_id"]),
                     ).fetchall()
+                    if (annotation_view and len(matches) == 1 and message["sender_id"]
+                            and str(matches[0]["user_id"]) != str(message["sender_id"])):
+                        # A matching message ID cannot override contradictory sender evidence.
+                        matches = []
                     item = {
                         "message_event_id": message["message_event_id"],
                         "membership": ("evaluation_member" if evaluation_id else "opportunity_associated")
@@ -519,6 +544,12 @@ class DashboardReader:
                                 "reply_to": stored["reply_to"],
                             }
                         )
-                    result["items"].append(item)
+                    if annotation_view:
+                        item["name"] = privacy.sender(
+                            matches[0]["user_id"] if len(matches) == 1 else None, message["message_event_id"]
+                        )
+                        if "text" in item:
+                            item["text"] = privacy.text(item["text"])
+                    result["target_items" if target_preview else "items"].append(item)
                 result["context_status"] = "partial_reconstruction"
             return result
